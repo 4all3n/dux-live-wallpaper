@@ -58,7 +58,21 @@ const translations = {
             "Video Wallpaper": "视频壁纸",
             "%1 wallpapers": "%1 个壁纸",
             "MpvPaper Error": "播放器异常",
-            "Video playback failed on %1": "显示器 %1 上的视频播放失败"
+            "Video playback failed on %1": "显示器 %1 上的视频播放失败",
+            // ── Slideshow ──
+            "Slideshow": "幻灯片",
+            "Auto-cycle wallpapers": "自动轮换壁纸",
+            "Automatically rotate through videos in your library at a set interval": "按设定间隔自动轮换视频库中的视频壁纸",
+            "Slideshow Interval": "轮换间隔",
+            "30 Seconds": "30 秒",
+            "1 Minute": "1 分钟",
+            "5 Minutes": "5 分钟",
+            "Shuffle order": "随机顺序",
+            "Next wallpaper": "下一张壁纸",
+            // ── Battery & Power ──
+            "Battery & Power": "电池与电源",
+            "Pause on battery power": "使用电池时暂停",
+            "Automatically pause video wallpaper when unplugged to save battery life": "拔下电源时自动暂停视频壁纸以节省电池电量"
         }
     }
 }

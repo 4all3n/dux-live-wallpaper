@@ -47,6 +47,20 @@ PluginComponent {
     readonly property bool pauseOnFullscreen: (pluginData.pauseOnFullscreen === undefined || pluginData.pauseOnFullscreen === null)
         ? true
         : !!pluginData.pauseOnFullscreen
+
+    // ── Slideshow / Shuffle ──
+    readonly property bool slideshowEnabled: !!pluginData.slideshowEnabled
+    readonly property bool slideshowShuffle: !!pluginData.slideshowShuffle
+    readonly property int slideshowInterval: ((pluginData.slideshowInterval === undefined || pluginData.slideshowInterval === null)
+        ? 300
+        : Number(pluginData.slideshowInterval)) * 1000
+    property var slideshowHistory: []
+
+    // ── Battery-Aware Power Saving ──
+    readonly property bool pauseOnBattery: (pluginData.pauseOnBattery === undefined || pluginData.pauseOnBattery === null)
+        ? false
+        : !!pluginData.pauseOnBattery
+    property bool isOnBattery: false
     readonly property bool niriPauseTrackingActive: root.ready
         && root.pauseOnFullscreen
         && CompositorService.isNiri
@@ -139,6 +153,28 @@ PluginComponent {
         interval: 0
         repeat: false
         onTriggered: root.niriPauseSocketResetting = false
+    }
+
+    // ── Slideshow Timer ──
+    Timer {
+        id: slideshowTimer
+        interval: root.slideshowInterval
+        repeat: true
+        running: root.ready
+            && root.slideshowEnabled
+            && !root.isLocked
+            && !(root.pauseOnBattery && root.isOnBattery)
+            && Object.keys(root.processes).length > 0
+        onTriggered: root.advanceSlideshow()
+    }
+
+    // ── Battery Status Polling ──
+    Timer {
+        id: batteryPollTimer
+        interval: 30000
+        repeat: true
+        running: root.ready && root.pauseOnBattery
+        onTriggered: root.checkBatteryStatus()
     }
 
     DankSocket {
@@ -519,11 +555,13 @@ PluginComponent {
     function shouldPauseMonitor(monitor) {
         if (isLocked && lockBehavior === "pause") return true
         if (isLocked) return false
+        if (pauseOnBattery && isOnBattery) return true
         return isFullscreenOnMonitor(monitor)
     }
 
     function pauseReasonForMonitor(monitor) {
         if (isLocked && lockBehavior === "pause") return "lock"
+        if (!isLocked && pauseOnBattery && isOnBattery) return "battery"
         if (!isLocked && isFullscreenOnMonitor(monitor)) return "fullscreen"
         return ""
     }
@@ -1616,6 +1654,148 @@ PluginComponent {
         restartTimers = mapWithout(restartTimers, monitor)
     }
 
+    // ── Slideshow / Shuffle Logic ──
+
+    function getVideoLibrary() {
+        const library = pluginData.videoLibrary
+        return Array.isArray(library) ? library : []
+    }
+
+    function advanceSlideshow() {
+        const library = getVideoLibrary()
+        if (library.length < 2) return
+
+        let nextVideo
+        if (slideshowShuffle) {
+            nextVideo = pickShuffledVideo(library)
+        } else {
+            nextVideo = pickSequentialVideo(library)
+        }
+
+        if (!nextVideo) return
+
+        applyGlobalSlideshowVideo(nextVideo)
+    }
+
+    function pickSequentialVideo(library) {
+        const currentVideo = getCurrentGlobalVideo()
+        let currentIndex = library.indexOf(currentVideo)
+        if (currentIndex < 0) currentIndex = -1
+        const nextIndex = (currentIndex + 1) % library.length
+        return library[nextIndex]
+    }
+
+    function pickShuffledVideo(library) {
+        const currentVideo = getCurrentGlobalVideo()
+
+        // Build a pool of videos not recently shown
+        let pool = library.filter(v => slideshowHistory.indexOf(v) === -1)
+        if (pool.length === 0) {
+            // All shown — reset history, exclude current to avoid repeat
+            slideshowHistory = []
+            pool = library.filter(v => v !== currentVideo)
+            if (pool.length === 0) pool = library
+        }
+
+        const randomIndex = Math.floor(Math.random() * pool.length)
+        const nextVideo = pool[randomIndex]
+
+        // Track history (keep last N-1 items to ensure full rotation)
+        const maxHistory = Math.max(1, library.length - 1)
+        slideshowHistory.push(nextVideo)
+        if (slideshowHistory.length > maxHistory)
+            slideshowHistory = slideshowHistory.slice(slideshowHistory.length - maxHistory)
+
+        return nextVideo
+    }
+
+    function getCurrentGlobalVideo() {
+        if (sameOnAllMonitors && allMonitorsVideo) return allMonitorsVideo
+        // Pick from any active monitor
+        const monitors = Object.keys(processes)
+        if (monitors.length > 0) {
+            return monitorVideos[monitors[0]] || ""
+        }
+        return ""
+    }
+
+    function applyGlobalSlideshowVideo(videoPath) {
+        if (!pluginService || !videoPath) return
+
+        const canSave = pluginService && pluginService.savePluginData
+
+        if (sameOnAllMonitors) {
+            pluginData.allMonitorsVideo = videoPath
+            if (canSave) pluginService.savePluginData(pluginId, "allMonitorsVideo", videoPath)
+        } else {
+            // Apply to all monitors in sequential/shuffle mode
+            const videos = Object.assign({}, pluginData.monitorVideos || {})
+            const connectedMonitors = Quickshell.screens.map(screen => screen.name)
+            for (const monitor of connectedMonitors) {
+                videos[monitor] = videoPath
+            }
+            pluginData.monitorVideos = videos
+            if (canSave) pluginService.savePluginData(pluginId, "monitorVideos", videos)
+        }
+
+        console.info("MpvPaper: Slideshow advanced to", videoPath)
+    }
+
+    // ── Battery-Aware Power Saving ──
+
+    Process {
+        id: batteryCheckProcess
+        property string output: ""
+
+        command: ["bash", "-c",
+            'for supply in /sys/class/power_supply/BAT* /sys/class/power_supply/bat*; do ' +
+            '  if [ -f "$supply/status" ]; then cat "$supply/status"; exit 0; fi; ' +
+            'done; echo "N/A"'
+        ]
+
+        stdout: SplitParser {
+            onRead: data => batteryCheckProcess.output = data.trim()
+        }
+
+        onExited: code => {
+            if (code === 0) {
+                const status = output.trim()
+                const wasBattery = root.isOnBattery
+                root.isOnBattery = (status === "Discharging")
+
+                if (root.isOnBattery !== wasBattery) {
+                    if (root.isOnBattery) {
+                        console.info("MpvPaper: Switched to battery power — pausing all videos")
+                        root.pauseAllVideosForBattery()
+                    } else {
+                        console.info("MpvPaper: AC power restored — resuming playback")
+                        root.resumeVideosAfterBattery()
+                    }
+                }
+            }
+            output = ""
+        }
+    }
+
+    function checkBatteryStatus() {
+        if (!pauseOnBattery) return
+        batteryCheckProcess.output = ""
+        batteryCheckProcess.running = true
+    }
+
+    function pauseAllVideosForBattery() {
+        if (!pauseOnBattery) return
+        for (const monitor in processes) {
+            applyMonitorPauseState(monitor, true)
+        }
+    }
+
+    function resumeVideosAfterBattery() {
+        for (const monitor in processes) {
+            applyMonitorPauseState(monitor, true)
+        }
+    }
+
     function updateWallpaperPalette(monitor, videoPath, forceRefresh) {
         paletteMonitor = monitor
         if (typeof Theme === "undefined" || Theme.currentTheme !== Theme.dynamic) return
@@ -1725,6 +1905,7 @@ PluginComponent {
         ready = true
         syncVideosWithData()
         pauseStateDebounce.restart()
+        checkBatteryStatus()
     }
 
     Component.onDestruction: {

@@ -1,9 +1,10 @@
 {
     "id": "mpvpaper",
-    "name": "MpvPaper Plugin",
-    "description": "Play and smoothly switch video wallpapers with multi-monitor support and a DankBar widget.",
-    "version": "1.2.0",
-    "author": "tokisak1kurum1",
+    "name": "Live Wallpaper",
+    "description": "Play and smoothly switch video wallpapers with multi-monitor support, slideshow/shuffle mode, battery-aware power saving, and a DankBar widget.",
+    "version": "2.0.0",
+    "author": "4all3n",
+    "original_author": "tokisak1kurum1",
     "type": "composite",
     "capabilities": ["wallpaper", "daemon", "dankbar-widget"],
     "components": {

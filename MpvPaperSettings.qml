@@ -708,6 +708,215 @@ PluginSettings {
     }
 
     StyledText {
+        text: MpvPaperI18n.tr("Slideshow", "mpvpaper")
+        font.pixelSize: Theme.fontSizeMedium
+        font.weight: Font.Medium
+    }
+
+    Column {
+        width: parent.width
+        spacing: Theme.spacingXS
+
+        Row {
+            width: parent.width
+            spacing: Theme.spacingM
+
+            Column {
+                width: parent.width - slideshowEnabledToggle.width - Theme.spacingM
+                spacing: Theme.spacingXS
+                anchors.verticalCenter: parent.verticalCenter
+
+                StyledText {
+                    text: MpvPaperI18n.tr("Auto-cycle wallpapers", "mpvpaper")
+                    font.pixelSize: root.settingTitleSize
+                    font.weight: Font.Medium
+                    color: Theme.surfaceText
+                }
+
+                StyledText {
+                    text: MpvPaperI18n.tr("Automatically rotate through videos in your library at a set interval", "mpvpaper")
+                    font.pixelSize: root.settingDescriptionSize
+                    color: Theme.surfaceVariantText
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                }
+            }
+
+            DankToggle {
+                id: slideshowEnabledToggle
+                anchors.verticalCenter: parent.verticalCenter
+
+                Binding {
+                    target: slideshowEnabledToggle
+                    property: "checked"
+                    value: root.loadValue("slideshowEnabled", false)
+                }
+
+                onToggled: isChecked => {
+                    if (isChecked !== root.loadValue("slideshowEnabled", false))
+                        root.saveValue("slideshowEnabled", isChecked)
+                }
+            }
+        }
+    }
+
+    Row {
+        width: parent.width
+        spacing: Theme.spacingM
+
+        StyledText {
+            text: MpvPaperI18n.tr("Slideshow Interval", "mpvpaper")
+            font.pixelSize: root.settingTitleSize
+            font.weight: Font.Medium
+            width: root.settingLabelWidth
+            anchors.verticalCenter: parent.verticalCenter
+            opacity: root.loadValue("slideshowEnabled", false) ? 1.0 : 0.4
+            Behavior on opacity { NumberAnimation { duration: Theme.shortDuration } }
+        }
+
+        DankDropdown {
+            id: slideshowIntervalDropdown
+            width: parent.width - root.settingLabelWidth - Theme.spacingM
+            enabled: root.loadValue("slideshowEnabled", false)
+            options: [
+                MpvPaperI18n.tr("30 Seconds", "mpvpaper"),
+                MpvPaperI18n.tr("1 Minute", "mpvpaper"),
+                MpvPaperI18n.tr("5 Minutes", "mpvpaper"),
+                MpvPaperI18n.tr("10 Minutes", "mpvpaper"),
+                MpvPaperI18n.tr("30 Minutes", "mpvpaper"),
+                MpvPaperI18n.tr("1 Hour", "mpvpaper"),
+                MpvPaperI18n.tr("2 Hours", "mpvpaper")
+            ]
+            compactMode: true
+
+            Binding {
+                target: slideshowIntervalDropdown
+                property: "currentValue"
+                value: {
+                    const interval = root.loadValue("slideshowInterval", 300)
+                    if (interval === 30) return MpvPaperI18n.tr("30 Seconds", "mpvpaper")
+                    if (interval === 60) return MpvPaperI18n.tr("1 Minute", "mpvpaper")
+                    if (interval === 300) return MpvPaperI18n.tr("5 Minutes", "mpvpaper")
+                    if (interval === 600) return MpvPaperI18n.tr("10 Minutes", "mpvpaper")
+                    if (interval === 1800) return MpvPaperI18n.tr("30 Minutes", "mpvpaper")
+                    if (interval === 3600) return MpvPaperI18n.tr("1 Hour", "mpvpaper")
+                    if (interval === 7200) return MpvPaperI18n.tr("2 Hours", "mpvpaper")
+                    return MpvPaperI18n.tr("5 Minutes", "mpvpaper")
+                }
+            }
+
+            onValueChanged: value => {
+                let interval = 300
+                if (value === MpvPaperI18n.tr("30 Seconds", "mpvpaper")) interval = 30
+                else if (value === MpvPaperI18n.tr("1 Minute", "mpvpaper")) interval = 60
+                else if (value === MpvPaperI18n.tr("5 Minutes", "mpvpaper")) interval = 300
+                else if (value === MpvPaperI18n.tr("10 Minutes", "mpvpaper")) interval = 600
+                else if (value === MpvPaperI18n.tr("30 Minutes", "mpvpaper")) interval = 1800
+                else if (value === MpvPaperI18n.tr("1 Hour", "mpvpaper")) interval = 3600
+                else if (value === MpvPaperI18n.tr("2 Hours", "mpvpaper")) interval = 7200
+                root.saveValue("slideshowInterval", interval)
+            }
+        }
+    }
+
+    Row {
+        width: parent.width
+        spacing: Theme.spacingM
+
+        StyledText {
+            text: MpvPaperI18n.tr("Shuffle order", "mpvpaper")
+            font.pixelSize: root.settingTitleSize
+            font.weight: Font.Medium
+            width: root.settingLabelWidth
+            anchors.verticalCenter: parent.verticalCenter
+            opacity: root.loadValue("slideshowEnabled", false) ? 1.0 : 0.4
+            Behavior on opacity { NumberAnimation { duration: Theme.shortDuration } }
+        }
+
+        DankToggle {
+            id: slideshowShuffleToggle
+            anchors.verticalCenter: parent.verticalCenter
+            enabled: root.loadValue("slideshowEnabled", false)
+
+            Binding {
+                target: slideshowShuffleToggle
+                property: "checked"
+                value: root.loadValue("slideshowShuffle", false)
+            }
+
+            onToggled: isChecked => {
+                if (isChecked !== root.loadValue("slideshowShuffle", false))
+                    root.saveValue("slideshowShuffle", isChecked)
+            }
+        }
+    }
+
+    Rectangle {
+        width: parent.width
+        height: 1
+        color: Theme.outlineStrong
+    }
+
+    StyledText {
+        text: MpvPaperI18n.tr("Battery & Power", "mpvpaper")
+        font.pixelSize: Theme.fontSizeMedium
+        font.weight: Font.Medium
+    }
+
+    Column {
+        width: parent.width
+        spacing: Theme.spacingXS
+
+        Row {
+            width: parent.width
+            spacing: Theme.spacingM
+
+            Column {
+                width: parent.width - pauseOnBatteryToggle.width - Theme.spacingM
+                spacing: Theme.spacingXS
+                anchors.verticalCenter: parent.verticalCenter
+
+                StyledText {
+                    text: MpvPaperI18n.tr("Pause on battery power", "mpvpaper")
+                    font.pixelSize: root.settingTitleSize
+                    font.weight: Font.Medium
+                    color: Theme.surfaceText
+                }
+
+                StyledText {
+                    text: MpvPaperI18n.tr("Automatically pause video wallpaper when unplugged to save battery life", "mpvpaper")
+                    font.pixelSize: root.settingDescriptionSize
+                    color: Theme.surfaceVariantText
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                }
+            }
+
+            DankToggle {
+                id: pauseOnBatteryToggle
+                anchors.verticalCenter: parent.verticalCenter
+
+                Binding {
+                    target: pauseOnBatteryToggle
+                    property: "checked"
+                    value: root.loadValue("pauseOnBattery", false)
+                }
+
+                onToggled: isChecked => {
+                    if (isChecked !== root.loadValue("pauseOnBattery", false))
+                        root.saveValue("pauseOnBattery", isChecked)
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        width: parent.width
+        height: 1
+        color: Theme.outlineStrong
+    }
+
+    StyledText {
         text: MpvPaperI18n.tr("Advanced MPV Settings", "mpvpaper")
         font.pixelSize: Theme.fontSizeMedium
         font.weight: Font.Medium

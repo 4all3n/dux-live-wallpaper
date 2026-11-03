@@ -244,6 +244,34 @@ PluginComponent {
 
                             Item { Layout.fillWidth: true }
 
+                            // Slideshow skip button
+                            DankActionButton {
+                                iconName: "skip_next"
+                                iconSize: 18
+                                buttonSize: 32
+                                opacity: 0.8
+                                visible: pluginData.slideshowEnabled || false
+                                onClicked: {
+                                    // Advance to next video in library
+                                    const playlist = root.getPlaylist()
+                                    if (playlist.length < 2) return
+                                    const currentPath = root.getCurrentVideoPath()
+                                    let currentIndex = playlist.indexOf(currentPath)
+                                    if (currentIndex < 0) currentIndex = -1
+                                    const shuffleEnabled = pluginData.slideshowShuffle || false
+                                    let nextVideo
+                                    if (shuffleEnabled) {
+                                        let idx = Math.floor(Math.random() * playlist.length)
+                                        if (playlist[idx] === currentPath && playlist.length > 1)
+                                            idx = (idx + 1) % playlist.length
+                                        nextVideo = playlist[idx]
+                                    } else {
+                                        nextVideo = playlist[(currentIndex + 1) % playlist.length]
+                                    }
+                                    if (nextVideo) root.setCurrentVideo(nextVideo)
+                                }
+                            }
+
                             DankActionButton {
                                 iconName: "close"
                                 iconSize: 18
