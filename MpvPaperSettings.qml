@@ -589,6 +589,117 @@ PluginSettings {
         spacing: Theme.spacingM
 
         StyledText {
+            text: MpvPaperI18n.tr("Enable Live Wallpaper", "mpvpaper")
+            font.pixelSize: root.settingTitleSize
+            font.weight: Font.Medium
+            width: root.settingLabelWidth
+            anchors.verticalCenter: parent.verticalCenter
+        }
+
+        DToggle {
+            id: liveWallpaperActiveToggle
+            anchors.verticalCenter: parent.verticalCenter
+
+            Binding {
+                target: liveWallpaperActiveToggle
+                property: "checked"
+                value: root.loadValue("liveWallpaperActive", true)
+            }
+
+            onToggled: isChecked => {
+                if (isChecked !== root.loadValue("liveWallpaperActive", true)) {
+                    root.saveValue("liveWallpaperActive", isChecked)
+                    if (!isChecked) {
+                        const orig = root.loadValue("originalStaticWallpaper", "")
+                        if (orig && typeof SessionData !== "undefined") {
+                            if (SessionData.setWallpaper) SessionData.setWallpaper(orig)
+                            if (SessionData.setMonitorWallpaper) {
+                                for (const s of Quickshell.screens) {
+                                    SessionData.setMonitorWallpaper(s.name, orig)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Row {
+        width: parent.width
+        spacing: Theme.spacingM
+
+        StyledText {
+            text: MpvPaperI18n.tr("Pause Playback", "mpvpaper")
+            font.pixelSize: root.settingTitleSize
+            font.weight: Font.Medium
+            width: root.settingLabelWidth
+            anchors.verticalCenter: parent.verticalCenter
+        }
+
+        DToggle {
+            id: isPausedToggle
+            anchors.verticalCenter: parent.verticalCenter
+
+            Binding {
+                target: isPausedToggle
+                property: "checked"
+                value: root.loadValue("isPaused", false)
+            }
+
+            onToggled: isChecked => {
+                if (isChecked !== root.loadValue("isPaused", false))
+                    root.saveValue("isPaused", isChecked)
+            }
+        }
+    }
+
+    Row {
+        width: parent.width
+        spacing: Theme.spacingM
+
+        Column {
+            width: root.settingLabelWidth
+            spacing: Theme.spacingXS
+            anchors.verticalCenter: parent.verticalCenter
+
+            StyledText {
+                text: MpvPaperI18n.tr("Sync static wallpaper", "mpvpaper")
+                font.pixelSize: root.settingTitleSize
+                font.weight: Font.Medium
+            }
+
+            StyledText {
+                text: MpvPaperI18n.tr("Set current video frame as desktop static wallpaper so overview blur matches video", "mpvpaper")
+                font.pixelSize: root.settingDescriptionSize
+                color: Theme.surfaceVariantText
+                wrapMode: Text.WordWrap
+                width: parent.width
+            }
+        }
+
+        DToggle {
+            id: syncStaticWallpaperToggle
+            anchors.verticalCenter: parent.verticalCenter
+
+            Binding {
+                target: syncStaticWallpaperToggle
+                property: "checked"
+                value: root.loadValue("syncStaticWallpaper", true)
+            }
+
+            onToggled: isChecked => {
+                if (isChecked !== root.loadValue("syncStaticWallpaper", true))
+                    root.saveValue("syncStaticWallpaper", isChecked)
+            }
+        }
+    }
+
+    Row {
+        width: parent.width
+        spacing: Theme.spacingM
+
+        StyledText {
             text: MpvPaperI18n.tr("Lock Screen Behavior", "mpvpaper")
             font.pixelSize: root.settingTitleSize
             font.weight: Font.Medium

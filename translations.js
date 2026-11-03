@@ -74,6 +74,17 @@ const translations = {
             "Battery & Power": "电池与电源",
             "Pause on battery power": "使用电池时暂停",
             "Automatically pause video wallpaper when unplugged to save battery life": "拔下电源时自动暂停视频壁纸以节省电池电量",
+            // ── Playback Controls & Status ──
+            "Resume Playback": "恢复播放",
+            "Live wallpaper enabled": "动态壁纸已启用",
+            "Live wallpaper disabled": "动态壁纸已停用",
+            "Disable Live Wallpaper": "停用动态壁纸",
+            "Enable Live Wallpaper": "启用动态壁纸",
+            "Playing": "正在播放",
+            "Paused": "已暂停",
+            "Stopped": "已停止",
+            "Sync static wallpaper": "同步静态壁纸",
+            "Set current video frame as desktop static wallpaper so overview blur matches video": "将当前视频帧同步为桌面静态壁纸，使概览背景模糊与视频一致",
             // ── Folder & Scanning ──
             "Refresh Wallpapers": "刷新壁纸",
             "Rescan Wallpapers": "重新扫描壁纸",

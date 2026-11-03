@@ -56,11 +56,44 @@ PluginComponent {
         : Number(pluginData.slideshowInterval)) * 1000
     property var slideshowHistory: []
 
+    // ── Playback State & Controls ──
+    readonly property bool liveWallpaperActive: (pluginData.liveWallpaperActive === undefined || pluginData.liveWallpaperActive === null)
+        ? true
+        : !!pluginData.liveWallpaperActive
+    readonly property bool isManuallyPaused: !!pluginData.isPaused
+    readonly property bool syncStaticWallpaper: (pluginData.syncStaticWallpaper === undefined || pluginData.syncStaticWallpaper === null)
+        ? true
+        : !!pluginData.syncStaticWallpaper
+
+    onLiveWallpaperActiveChanged: {
+        root.syncVideosWithData()
+    }
+
+    onIsManuallyPausedChanged: {
+        root.syncPauseStates()
+    }
+
     // ── Battery-Aware Power Saving ──
     readonly property bool pauseOnBattery: (pluginData.pauseOnBattery === undefined || pluginData.pauseOnBattery === null)
         ? false
         : !!pluginData.pauseOnBattery
     property bool isOnBattery: false
+    readonly property bool batteryServiceAvailable: typeof BatteryService !== "undefined" && BatteryService.batteryAvailable
+
+    onPauseOnBatteryChanged: {
+        root.checkBatteryStatus()
+        root.syncPauseStates()
+    }
+
+    Connections {
+        target: (typeof BatteryService !== "undefined") ? BatteryService : null
+        function onIsPluggedInChanged() {
+            root.syncBatteryState()
+        }
+        function onBatteryAvailableChanged() {
+            root.syncBatteryState()
+        }
+    }
     readonly property bool niriPauseTrackingActive: root.ready
         && root.pauseOnFullscreen
         && CompositorService.isNiri
@@ -162,16 +195,18 @@ PluginComponent {
         repeat: true
         running: root.ready
             && root.slideshowEnabled
+            && root.liveWallpaperActive
+            && !root.isManuallyPaused
             && !root.isLocked
             && !(root.pauseOnBattery && root.isOnBattery)
             && Object.keys(root.processes).length > 0
         onTriggered: root.advanceSlideshow()
     }
 
-    // ── Battery Status Polling ──
+    // ── Battery Status Polling (Fallback for non-UPower setups) ──
     Timer {
         id: batteryPollTimer
-        interval: 30000
+        interval: 5000
         repeat: true
         running: root.ready && root.pauseOnBattery
         onTriggered: root.checkBatteryStatus()
@@ -555,12 +590,14 @@ PluginComponent {
     function shouldPauseMonitor(monitor) {
         if (isLocked && lockBehavior === "pause") return true
         if (isLocked) return false
+        if (root.isManuallyPaused) return true
         if (pauseOnBattery && isOnBattery) return true
         return isFullscreenOnMonitor(monitor)
     }
 
     function pauseReasonForMonitor(monitor) {
         if (isLocked && lockBehavior === "pause") return "lock"
+        if (root.isManuallyPaused) return "manual"
         if (!isLocked && pauseOnBattery && isOnBattery) return "battery"
         if (!isLocked && isFullscreenOnMonitor(monitor)) return "fullscreen"
         return ""
@@ -647,6 +684,21 @@ PluginComponent {
             console.info("MpvPaper: Screen is locked, skipping video sync")
             return
         }
+        if (!root.liveWallpaperActive) {
+            console.info("MpvPaper: Live wallpaper is disabled, stopping all players")
+            appliedPauseStates = ({})
+            stopAllVideos()
+            const orig = (pluginData && pluginData.originalStaticWallpaper) ? pluginData.originalStaticWallpaper : ""
+            if (orig && typeof SessionData !== "undefined") {
+                if (SessionData.setWallpaper) SessionData.setWallpaper(orig)
+                if (SessionData.setMonitorWallpaper) {
+                    for (const s of Quickshell.screens) {
+                        SessionData.setMonitorWallpaper(s.name, orig)
+                    }
+                }
+            }
+            return
+        }
         if (isSyncing) {
             console.warn("MpvPaper: Sync already in progress, skipping")
             return
@@ -672,6 +724,8 @@ PluginComponent {
                     continue
                 }
 
+                root.syncStaticWallpaperToSessionData(monitor, newVideoPath)
+
                 const newSettings = getEffectiveSettings(newVideoPath)
                 const alreadyCurrent = process
                     && process.videoPath === newVideoPath
@@ -696,6 +750,8 @@ PluginComponent {
             console.info("MpvPaper: Refusing launch while locked or without a video for", monitor)
             return
         }
+
+        root.syncStaticWallpaperToSessionData(monitor, videoPath)
 
         const settings = getEffectiveSettings(videoPath)
         const process = processes[monitor]
@@ -1743,14 +1799,34 @@ PluginComponent {
 
     // ── Battery-Aware Power Saving ──
 
+    function syncBatteryState() {
+        if (!pauseOnBattery) return
+        if (batteryServiceAvailable) {
+            const onBatt = !BatteryService.isPluggedIn
+            if (root.isOnBattery !== onBatt) {
+                root.isOnBattery = onBatt
+                console.info("MpvPaper Daemon: Battery state updated via BatteryService. isOnBattery:", onBatt)
+            }
+            syncPauseStates()
+        } else {
+            batteryCheckProcess.running = true
+        }
+    }
+
     Process {
         id: batteryCheckProcess
         property string output: ""
 
         command: ["bash", "-c",
-            'for supply in /sys/class/power_supply/BAT* /sys/class/power_supply/bat*; do ' +
-            '  if [ -f "$supply/status" ]; then cat "$supply/status"; exit 0; fi; ' +
-            'done; echo "N/A"'
+            'if [ -f /sys/class/power_supply/AC/online ] && [ "$(cat /sys/class/power_supply/AC/online 2>/dev/null)" = "0" ]; then ' +
+            '  echo "battery"; ' +
+            'elif [ -f /sys/class/power_supply/BAT0/status ] && [ "$(cat /sys/class/power_supply/BAT0/status 2>/dev/null)" = "Discharging" ]; then ' +
+            '  echo "battery"; ' +
+            'else ' +
+            '  for supply in /sys/class/power_supply/BAT* /sys/class/power_supply/bat*; do ' +
+            '    if [ -f "$supply/status" ] && [ "$(cat "$supply/status" 2>/dev/null)" = "Discharging" ]; then echo "battery"; exit 0; fi; ' +
+            '  done; echo "ac"; ' +
+            'fi'
         ]
 
         stdout: SplitParser {
@@ -1761,17 +1837,12 @@ PluginComponent {
             if (code === 0) {
                 const status = output.trim()
                 const wasBattery = root.isOnBattery
-                root.isOnBattery = (status === "Discharging")
+                root.isOnBattery = (status === "battery")
 
                 if (root.isOnBattery !== wasBattery) {
-                    if (root.isOnBattery) {
-                        console.info("MpvPaper: Switched to battery power — pausing all videos")
-                        root.pauseAllVideosForBattery()
-                    } else {
-                        console.info("MpvPaper: AC power restored — resuming playback")
-                        root.resumeVideosAfterBattery()
-                    }
+                    console.info("MpvPaper Daemon: Battery state updated via sysfs check. isOnBattery:", root.isOnBattery)
                 }
+                syncPauseStates()
             }
             output = ""
         }
@@ -1779,21 +1850,82 @@ PluginComponent {
 
     function checkBatteryStatus() {
         if (!pauseOnBattery) return
-        batteryCheckProcess.output = ""
-        batteryCheckProcess.running = true
+        syncBatteryState()
     }
 
-    function pauseAllVideosForBattery() {
-        if (!pauseOnBattery) return
-        for (const monitor in processes) {
-            applyMonitorPauseState(monitor, true)
+    // ── Static Wallpaper Overview Blur Synchronization ──
+
+    Process {
+        id: staticSyncProcess
+        property string monitorName: ""
+        property string previewPath: ""
+        property string videoPath: ""
+
+        onExited: code => {
+            if (code === 0 && previewPath && typeof SessionData !== "undefined") {
+                if (SessionData.setWallpaper) {
+                    SessionData.setWallpaper(previewPath)
+                }
+                if (SessionData.setMonitorWallpaper) {
+                    const targetMonitors = root.sameOnAllMonitors ? Quickshell.screens.map(s => s.name) : [monitorName]
+                    for (const m of targetMonitors) {
+                        if (m) {
+                            console.info("MpvPaper Daemon: Synchronizing static wallpaper for overview blur on", m, ":", previewPath)
+                            SessionData.setMonitorWallpaper(m, previewPath)
+                        }
+                    }
+                }
+            }
         }
     }
 
-    function resumeVideosAfterBattery() {
-        for (const monitor in processes) {
-            applyMonitorPauseState(monitor, true)
+    function syncStaticWallpaperToSessionData(monitor, videoPath) {
+        if (!syncStaticWallpaper || !videoPath) return
+        if (typeof SessionData === "undefined") return
+
+        // Preserve original static wallpaper once so user can restore when disabling live wallpaper
+        if (SessionData.wallpaperPath && !SessionData.wallpaperPath.includes("mpvpaper_thumbnails")) {
+            if (pluginService && (!pluginData || !pluginData.originalStaticWallpaper)) {
+                pluginService.savePluginData("mpvpaper", "originalStaticWallpaper", SessionData.wallpaperPath)
+            }
         }
+
+        let h = 0
+        for (let i = 0; i < videoPath.length; i++) {
+            h = ((h << 5) - h) + videoPath.charCodeAt(i)
+            h = h & h
+        }
+        const hashStr = Math.abs(h).toString()
+        const cacheDir = StandardPaths.writableLocation(StandardPaths.GenericCacheLocation).toString().replace("file://", "") + "/DankMaterialShell/mpvpaper_thumbnails"
+        const previewPath = cacheDir + "/" + hashStr + "_preview.jpg"
+
+        // If preview already exists in cache, apply immediately with 0 latency
+        const cached = StandardPaths.locate(
+            StandardPaths.GenericCacheLocation,
+            "DankMaterialShell/mpvpaper_thumbnails/" + hashStr + "_preview.jpg",
+            StandardPaths.LocateFile
+        )
+        if (cached.toString() !== "") {
+            if (SessionData.setWallpaper) SessionData.setWallpaper(previewPath)
+            if (SessionData.setMonitorWallpaper) {
+                const targetMonitors = root.sameOnAllMonitors ? Quickshell.screens.map(s => s.name) : [monitor]
+                for (const m of targetMonitors) {
+                    if (m) SessionData.setMonitorWallpaper(m, previewPath)
+                }
+            }
+            return
+        }
+
+        if (staticSyncProcess.running) staticSyncProcess.running = false
+        staticSyncProcess.monitorName = monitor
+        staticSyncProcess.previewPath = previewPath
+        staticSyncProcess.videoPath = videoPath
+        staticSyncProcess.command = [
+            "bash", "-c",
+            `if [ -f "$1" ]; then exit 0; fi; mkdir -p "$(dirname "$1")" && ffmpeg -loglevel error -i "$2" -ss 00:00:01 -vframes 1 -q:v 2 "$1" -y`,
+            "mpvpaper-static-sync", previewPath, videoPath
+        ]
+        staticSyncProcess.running = true
     }
 
     // ── Wallpaper Folder Auto-Detection & Thumbnail Pre-generation ──
@@ -1898,18 +2030,22 @@ PluginComponent {
 
         batchThumbGenProcess.command = [
             "bash", "-c",
-            `mkdir -p "${cacheDir}"
-            while IFS= read -r video; do
-                [ -z "$video" ] && continue
-                [ ! -f "$video" ] && continue
-                fname=$(python3 -c "import sys; p=sys.argv[1]; h=0; [h:=(((h<<5)-h)+ord(c))&0xffffffff for c in p]; h=h-0x100000000 if h>=0x80000000 else h; print(f'{abs(h)}_thumb.jpg')" "$video")
-                out="${cacheDir}/$fname"
-                if [ ! -f "$out" ]; then
-                    ffmpeg -loglevel error -i "$video" -ss 00:00:01 -vframes 1 -vf "scale=320:180:force_original_aspect_ratio=increase,crop=320:180" -q:v 3 "$out" -y
-                fi
-            done << 'EOF'
-${library.join("\n")}
-EOF`
+            'mkdir -p "$1"\n' +
+            'while IFS= read -r video; do\n' +
+            '    [ -z "$video" ] && continue\n' +
+            '    [ ! -f "$video" ] && continue\n' +
+            '    fname=$(python3 -c "import sys; p=sys.argv[1]; h=0; [h:=(((h<<5)-h)+ord(c))&0xffffffff for c in p]; h=h-0x100000000 if h>=0x80000000 else h; print(abs(h))" "$video")\n' +
+            '    out="$1/${fname}_thumb.jpg"\n' +
+            '    prev="$1/${fname}_preview.jpg"\n' +
+            '    if [ ! -f "$out" ]; then\n' +
+            '        ffmpeg -loglevel error -i "$video" -ss 00:00:01 -vframes 1 -vf "scale=320:180:force_original_aspect_ratio=increase,crop=320:180" -q:v 3 "$out" -y\n' +
+            '    fi\n' +
+            '    if [ ! -f "$prev" ]; then\n' +
+            '        ffmpeg -loglevel error -i "$video" -ss 00:00:01 -vframes 1 -q:v 2 "$prev" -y\n' +
+            '    fi\n' +
+            'done << \'EOF\'\n' +
+            library.join("\n") + '\nEOF',
+            "mpvpaper-batch-thumb", cacheDir
         ]
         batchThumbGenProcess.running = true
     }
