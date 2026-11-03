@@ -1,133 +1,139 @@
-# Live Wallpaper Plugin
+# Dux Live Wallpaper
 
-[English](#live-wallpaper-plugin) | [简体中文](#简体中文)
+A modern, high-performance live video wallpaper plugin for [Dux Shell](https://github.com/duxlabs-dev/dux-shell) (formerly Dank Material Shell) on Wayland compositors (Niri, Hyprland, etc.). Powered by [`mpvpaper`](https://github.com/GhostNaN/mpvpaper).
 
-![Live Wallpaper settings](screenshot.png)
+![Live Wallpaper Screenshot](screenshot.png)
 
-Video wallpaper plugin for [Dux Shell](https://github.com/duxlabs-dev/dux-shell) (formerly Dank Material Shell). It uses `mpvpaper` for playback and includes a settings interface, DankBar wallpaper switcher, slideshow/shuffle mode, and battery-aware power saving.
-
-> **Fork of [tokisak1kurum1/mpvpaper-plugin](https://github.com/tokisak1kurum1/mpvpaper-plugin)** — enhanced with slideshow, shuffle, battery awareness, and a skip button in the widget.
-
-## Features
-
-### From the original plugin
-- Smooth wallpaper switching without restarting `mpvpaper` for every video change
-- Shared video library with independent wallpaper selection per monitor, or one wallpaper across all monitors
-- DankBar widget for browsing and switching wallpapers
-- Hardware decoding with `auto`, `nvdec`, `vaapi`, and `vdpau`, plus fill mode and volume controls
-- Configurable lock-screen behavior: stop the player or pause and resume from the current position
-- Configurable periodic `mpvpaper` restart to mitigate memory leaks (disabled by default)
-- DMS dynamic colors generated from the active video wallpaper, including when switching to the dynamic theme
-- English and Simplified Chinese settings
-
-### ✨ New in this fork
-- **Slideshow mode** — automatically cycle through your video library at a configurable interval (30s to 2h)
-- **Shuffle mode** — randomize the order with smart history tracking to ensure full rotation before repeats
-- **Skip button** — manually advance to the next wallpaper from the DankBar widget popup
-- **Battery-aware power saving** — automatically pause video wallpapers when running on battery, resume when plugged in
-- **Enhanced pause logic** — combined battery + fullscreen + lock-screen awareness for maximum power efficiency
-
-## Installation
-
-Live Wallpaper Plugin is available in the DMS Plugin Directory.
-
-1. Open **DMS Settings → Plugins → Browse**.
-2. Search for **Live Wallpaper** (or **MpvPaper Plugin**).
-3. Install and enable the plugin.
-
-Install the required system packages first. On Arch Linux:
-
-```bash
-sudo pacman -S ffmpeg
-yay -S mpvpaper
-```
-
-## Usage
-
-1. Open the plugin settings and add video files or a folder.
-2. Select a monitor and choose its wallpaper, or enable the same wallpaper for all monitors.
-3. Configure playback, lock-screen behavior, and optional advanced MPV settings as needed.
-4. Add **Live Wallpaper** to the DankBar layout if you want quick wallpaper switching from the bar.
-
-### Slideshow Mode
-1. Go to **Settings → Slideshow** section.
-2. Toggle **Auto-cycle wallpapers** on.
-3. Set the desired interval (30 seconds to 2 hours).
-4. Optionally enable **Shuffle order** for random rotation.
-5. Use the ⏭ **skip button** in the DankBar popup to manually advance.
-
-### Battery Power Saving
-1. Go to **Settings → Battery & Power** section.
-2. Toggle **Pause on battery power** on.
-3. The plugin will automatically pause playback when unplugged and resume when AC power is restored.
-
-The settings page and DankBar widget use the same video library. Changing a wallpaper only changes the current selection; adding videos does not automatically replace the active wallpaper.
-
-Setting the volume to zero disables audio tracks. Switching between zero and a positive volume restarts the player once; changing between positive volumes reuses the player.
-
-## Requirements
-
-- DMS 1.6.2 or later
-- [`mpvpaper`](https://github.com/GhostNaN/mpvpaper)
-- `ffmpeg` for thumbnails and dynamic color extraction
-
-## License
-
-MIT — Original plugin by [tokisak1kurum1](https://github.com/tokisak1kurum1), enhanced by [4all3n](https://github.com/4all3n).
+> **Fork of [tokisak1kurum1/mpvpaper-plugin](https://github.com/tokisak1kurum1/mpvpaper-plugin)** — redesigned and modernized for Dux Shell 2.0 with a 3D Coverflow carousel, Niri workspace overview background blur synchronization, keyboard navigation, instant battery awareness, folder auto-detection, and session persistence.
 
 ---
 
-## 简体中文
+## ✨ Features
 
-用于 [Dux Shell](https://github.com/duxlabs-dev/dux-shell)（前身 Dank Material Shell）的视频壁纸插件。插件使用 `mpvpaper` 播放视频壁纸，提供完整的设置界面、DankBar 壁纸切换组件、幻灯片/随机播放模式和电池感知省电功能。
+### 🎨 Modern 3D Coverflow Carousel
+- **Dux Shell Native Styling**: 16:9 cards with perspective transformation (`±25°`), smooth scaling, and side-peek depth falloff matching Dux Shell DDash.
+- **Rounded Corners**: GPU-accelerated rounded corners (`ClippingRectangle`) that strictly clip video thumbnails inside the border.
+- **Keyboard Navigation**:
+  - `←` / `→` arrow keys to smoothly step through wallpapers.
+  - `Enter`, `Return`, or `Space` to apply the centered wallpaper immediately.
+  - Mouse wheel and touch drag scrolling supported.
+- **Clear Status & Quick Actions**: Active card checkmark badge, hover-to-remove button, and dynamic `"Press Enter or Click to Apply"` badge when browsing.
+- **Empty State**: Welcoming placeholder with quick `"Add Video"` and `"Add Folder"` buttons when the library is empty.
 
-> **基于 [tokisak1kurum1/mpvpaper-plugin](https://github.com/tokisak1kurum1/mpvpaper-plugin) 的增强版** — 新增幻灯片、随机播放、电池感知和跳过按钮。
+### 🖼️ Niri Workspace Overview Background Blur Sync
+- Automatically extracts high-resolution frames (`preview.jpg`) from your active video and synchronizes them directly with Dux Shell's `SessionData.setWallpaper()`.
+- When entering the Niri workspace overview, Dux Shell's `WallpaperBackground` blurs the matching video frame instead of falling back to old static images.
+- Automatically preserves your original static wallpaper so turning off live wallpaper restores your desktop cleanly with zero black screens or glitches.
 
-### 功能
+### 🎛️ Control Center & DankBar Integration
+- **Control Center Tile**: Displays live status pill (`Playing`, `Paused`, `Disabled`) with a 1-click toggle and detailed configuration view.
+- **Detail View**: Master Play/Pause and Power buttons in the header, with streamlined settings below (zero duplicate buttons).
+- **DankBar Pill & Popout**: Optional top-bar pill with a quick popout carousel.
 
-#### 原版功能
-- 切换视频时复用现有 `mpvpaper` 播放进程，减少黑屏、闪烁和重新启动造成的卡顿
-- 使用统一的视频库，可为每个显示器分别选择壁纸，也可让所有显示器使用同一壁纸
-- 提供 DankBar 组件，可直接浏览和切换视频壁纸
-- 支持 `auto`、`nvdec`、`vaapi`、`vdpau` 硬件解码，并提供画面填充和音量设置
-- 锁屏时可选择关闭播放器，或暂停播放并在解锁后从当前位置继续
-- 可设置定时重启 `mpvpaper`，默认关闭
-- 根据当前视频壁纸生成 DMS 动态配色，切换到动态主题时也会更新配色
-- 设置界面支持 English 和简体中文
+### 🔋 Intelligent Power & Battery Saving
+- **Instant Battery Detection**: Hooked directly into Dux Shell's native `BatteryService.isPluggedIn` UPower D-Bus events for instant (<10ms) reaction when unplugging the charger.
+- **Kernel Sysfs Fallback**: Monitors `/sys/class/power_supply/AC/online` for robust detection even without UPower.
+- **Fullscreen Window Awareness**: Pauses playback when an application is fullscreen or covering the monitor on Niri.
+- **Lock-Screen Behavior**: Configurable action on lock (pause playback or completely stop the player to save resources).
 
-#### ✨ 新增功能
-- **幻灯片模式** — 按设定间隔自动轮换视频库中的视频（30秒至2小时）
-- **随机播放模式** — 随机顺序播放，智能历史追踪确保全部轮换后才重复
-- **跳过按钮** — 在 DankBar 弹出窗口中手动切换到下一个壁纸
-- **电池感知省电** — 使用电池供电时自动暂停视频壁纸，接通电源后恢复
-- **增强暂停逻辑** — 电池 + 全屏 + 锁屏综合感知，最大限度节省电量
+### 🔄 Multi-Monitor & Persistence
+- **Persistent Reboot State**: Multi-layer fallback chain (`monitorVideos` → `allMonitorsVideo` → `lastActiveVideo` → library) guarantees wallpapers persist across reboots, logouts, and display config changes.
+- **Multi-Monitor Modes**: Run independent video wallpapers on each display or sync the same wallpaper across all screens.
+- **Seamless Boot Frame**: Dux Shell renders the cached video preview frame before `mpvpaper` spawns, eliminating startup black flashes.
 
-### 安装
+### 📂 Folder Auto-Detection & Library Management
+- **Directory Scanning**: Add entire folders containing `.mp4`, `.mkv`, `.webm`, `.mov`, `.avi`, or `.wmv` files.
+- **Auto-Detection**: Background scanner checks monitored folders periodically and imports newly added videos automatically.
+- **Async Thumbnail Pregeneration**: Extracts thumbnails and high-res frames in the background without freezing the UI.
 
-1. 打开 **DMS 设置 → 插件 → 浏览**。
-2. 搜索 **Live Wallpaper**（或 **MpvPaper Plugin**）。
-3. 安装并启用插件。
+### 🎞️ Slideshow & Hardware Acceleration
+- **Auto-Cycle / Slideshow**: Automatically rotate through videos at configurable intervals (30 seconds to 2 hours).
+- **Smart Shuffle**: Random rotation with history tracking to prevent repeats until the full library cycles.
+- **GPU Decoding**: Supports `auto`, `vaapi`, `nvdec`, and `vdpau` hardware acceleration.
+- **Display Modes**: Pan-and-scan modes (`Fill Screen (Crop)`, `Fit Screen (Letterbox)`, `Stretch Fill`).
+- **Volume & Custom MPV Options**: Audio volume slider and arbitrary MPV command-line arguments.
+- **Material You Dynamic Theming**: Extracts color palettes from active video wallpapers for Dux Shell's dynamic theme engine.
 
-请先安装系统依赖。Arch Linux：
+---
 
+## ⌨️ Keyboard Shortcuts (Inside Carousel)
+
+| Key | Action |
+| :--- | :--- |
+| `←` (Left Arrow) | Move to previous wallpaper in carousel |
+| `→` (Right Arrow) | Move to next wallpaper in carousel |
+| `Enter` / `Return` | Apply and play the centered wallpaper |
+| `Space` | Apply and play the centered wallpaper |
+| `Mouse Wheel` | Scroll through wallpapers |
+| `Click on Card` | Select and apply wallpaper |
+
+---
+
+## 📦 Requirements
+
+- **Dux Shell** (formerly Dank Material Shell) 1.6.2 or 2.0+
+- **`mpvpaper`** (Wayland video wallpaper utility)
+- **`ffmpeg`** (for thumbnail generation, preview extraction, and color palette sampling)
+- **`zenity`** or **`kdialog`** (for system file and folder picker dialogs)
+
+### Package Installation
+
+#### Arch Linux / EndeavourOS / Manjaro:
 ```bash
-sudo pacman -S ffmpeg
+sudo pacman -S ffmpeg zenity
 yay -S mpvpaper
 ```
 
-### 使用
+#### Fedora:
+```bash
+sudo dnf install ffmpeg zenity
+# Install mpvpaper via copr or source:
+sudo dnf copr enable erikreider/SwayNotificationCenter
+sudo dnf install mpvpaper
+```
 
-1. 打开插件设置，添加视频文件或整个视频文件夹。
-2. 选择显示器并设置对应壁纸；也可以启用"所有显示器使用相同壁纸"。
-3. 按需设置硬件解码、画面填充、音量、锁屏行为和高级 MPV 参数。
-4. 如需从状态栏快速切换壁纸，可在 DankBar 布局中添加 **Live Wallpaper**。
+#### Ubuntu / Debian:
+```bash
+sudo apt install ffmpeg zenity mpv
+# Build mpvpaper from source or via PPA
+```
 
-### 依赖
+---
 
-- DMS 1.6.2 或更高版本
-- [`mpvpaper`](https://github.com/GhostNaN/mpvpaper)
-- `ffmpeg`，用于生成视频缩略图和动态配色取帧
+## 🚀 Installation
 
-### 许可证
+### Option 1: Via DMS Plugins Directory
+1. Open **DMS Settings → Plugins → Browse**.
+2. Search for **Live Wallpaper** (or **mpvpaper**).
+3. Click **Install** and **Enable**.
 
-MIT — 原始插件由 [tokisak1kurum1](https://github.com/tokisak1kurum1) 开发，由 [4all3n](https://github.com/4all3n) 增强。
+### Option 2: Manual Installation (Git)
+Clone or symlink this repository into your Dux Shell plugins directory:
+
+```bash
+mkdir -p ~/.config/dms/plugins
+git clone https://github.com/4all3n/dux-live-wallpaper.git ~/.config/dms/plugins/mpvpaper
+```
+
+Restart Dux Shell:
+```bash
+dms restart
+```
+
+---
+
+## 🛠️ Usage
+
+1. Open **Dux Shell Settings → Plugins → MpvPaper** or open **Control Center → Video Wallpaper**.
+2. Click **Add Video** or **Add Folder** to import your wallpapers.
+3. Use the arrow keys or click a card in the **Coverflow Carousel** to set your wallpaper.
+4. Customize your playback options:
+   - **Pause on battery power**: Automatically freezes playback when unplugged to extend laptop battery life.
+   - **Sync static wallpaper**: Keeps Dux Shell's static wallpaper in sync with your active video so the Niri workspace overview blur matches.
+   - **Auto-cycle wallpapers**: Enables automatic wallpaper rotation with interval and shuffle options.
+
+---
+
+## 📄 License
+
+MIT License — Original plugin created by [tokisak1kurum1](https://github.com/tokisak1kurum1), modernized and enhanced by [4all3n](https://github.com/4all3n).
