@@ -209,7 +209,7 @@ PluginComponent {
                 ? root.paletteMonitor
                 : Object.keys(root.processes).pop()
             const process = root.processes[monitor]
-            if (process?.videoPath)
+            if (process && process.videoPath)
                 root.updateWallpaperPalette(monitor, process.videoPath, true)
         }
     }
@@ -486,12 +486,12 @@ PluginComponent {
         niriPauseQueryTimeout.stop()
         liveNiriQueryInFlight = false
 
-        if (reply?.Err !== undefined) {
+        if (reply && reply.Err !== undefined) {
             console.warn("MpvPaper: Niri workspace query failed -", reply.Err)
             return
         }
 
-        const workspaces = reply?.Ok?.Workspaces
+        const workspaces = (reply && reply.Ok) ? reply.Ok.Workspaces : null
         if (!Array.isArray(workspaces)) {
             console.warn("MpvPaper: Niri workspace query returned an unexpected reply")
             return
@@ -523,7 +523,7 @@ PluginComponent {
         if (!logical || logical.width === undefined || logical.height === undefined)
             return false
 
-        const size = window.layout?.tile_size || window.layout?.window_size
+        const size = (window.layout && (window.layout.tile_size || window.layout.window_size)) || null
         if (!size || size.length < 2) return false
 
         const width = Number(size[0])
@@ -1796,6 +1796,124 @@ PluginComponent {
         }
     }
 
+    // ── Wallpaper Folder Auto-Detection & Thumbnail Pre-generation ──
+    readonly property bool autoDetectFolders: (pluginData.autoDetectFolders === undefined || pluginData.autoDetectFolders === null)
+        ? true
+        : !!pluginData.autoDetectFolders
+
+    Timer {
+        id: autoDetectTimer
+        interval: 60000
+        repeat: true
+        running: root.ready && root.autoDetectFolders
+        onTriggered: root.rescanMonitoredFolders(false)
+    }
+
+    Process {
+        id: folderRescanProcess
+        property bool notifyUser: false
+        property string scanOutput: ""
+
+        stdout: SplitParser {
+            onRead: data => folderRescanProcess.scanOutput += data + "\n"
+        }
+
+        onExited: code => {
+            if (code === 0 && scanOutput.trim() !== "") {
+                const files = scanOutput.trim().split("\n").map(f => f.trim()).filter(f => f !== "")
+                if (files.length > 0 && pluginService) {
+                    const currentLibrary = (pluginData && Array.isArray(pluginData.videoLibrary)) ? pluginData.videoLibrary.slice() : []
+                    let addedCount = 0
+                    for (const file of files) {
+                        if (currentLibrary.indexOf(file) === -1) {
+                            currentLibrary.push(file)
+                            addedCount++
+                        }
+                    }
+                    if (addedCount > 0) {
+                        pluginService.savePluginData(pluginId, "videoLibrary", currentLibrary)
+                        console.info("MpvPaper Daemon: Auto-detected " + addedCount + " new wallpapers")
+                        if (notifyUser && typeof ToastService !== "undefined") {
+                            ToastService.showInfo(
+                                MpvPaperI18n.tr("Rescan complete", "mpvpaper"),
+                                MpvPaperI18n.tr("Found %1 wallpapers (%2 new)", "mpvpaper").arg(currentLibrary.length).arg(addedCount)
+                            )
+                        }
+                    } else if (notifyUser && typeof ToastService !== "undefined") {
+                        ToastService.showInfo(
+                            MpvPaperI18n.tr("Rescan complete", "mpvpaper"),
+                            MpvPaperI18n.tr("Found %1 wallpapers (%2 new)", "mpvpaper").arg(currentLibrary.length).arg(0)
+                        )
+                    }
+                }
+            }
+            scanOutput = ""
+            notifyUser = false
+            root.pregenerateThumbnails()
+        }
+    }
+
+    function rescanMonitoredFolders(showToast) {
+        if (folderRescanProcess.running) return
+        const folders = getMonitoredFolders()
+        if (folders.length === 0) return
+
+        folderRescanProcess.notifyUser = !!showToast
+        folderRescanProcess.scanOutput = ""
+        const folderArgs = folders.map(f => `"${f}"`).join(" ")
+        folderRescanProcess.command = [
+            "bash", "-c",
+            `for d in ${folderArgs}; do [ -d "$d" ] && find "$d" -maxdepth 2 -type f -regextype posix-extended -iregex '.*\\.(mp4|mkv|webm|avi|mov|flv|wmv|m4v)'; done`
+        ]
+        folderRescanProcess.running = true
+    }
+
+    function getMonitoredFolders() {
+        if (pluginData && Array.isArray(pluginData.wallpaperFolders) && pluginData.wallpaperFolders.length > 0) {
+            return pluginData.wallpaperFolders
+        }
+        const library = (pluginData && Array.isArray(pluginData.videoLibrary)) ? pluginData.videoLibrary : []
+        const folders = []
+        for (const video of library) {
+            const dir = video.substring(0, video.lastIndexOf("/"))
+            if (dir && folders.indexOf(dir) === -1) folders.push(dir)
+        }
+        return folders
+    }
+
+    Process {
+        id: batchThumbGenProcess
+        property string queueOutput: ""
+        onExited: code => {
+            if (code === 0) console.info("MpvPaper Daemon: Thumbnail generation check complete")
+        }
+    }
+
+    function pregenerateThumbnails() {
+        if (batchThumbGenProcess.running) return
+        const library = (pluginData && Array.isArray(pluginData.videoLibrary)) ? pluginData.videoLibrary : []
+        if (library.length === 0) return
+
+        const cacheDir = StandardPaths.writableLocation(StandardPaths.GenericCacheLocation).toString().replace("file://", "") + "/DankMaterialShell/mpvpaper_thumbnails"
+
+        batchThumbGenProcess.command = [
+            "bash", "-c",
+            `mkdir -p "${cacheDir}"
+            while IFS= read -r video; do
+                [ -z "$video" ] && continue
+                [ ! -f "$video" ] && continue
+                fname=$(python3 -c "import sys; p=sys.argv[1]; h=0; [h:=(((h<<5)-h)+ord(c))&0xffffffff for c in p]; h=h-0x100000000 if h>=0x80000000 else h; print(f'{abs(h)}_thumb.jpg')" "$video")
+                out="${cacheDir}/$fname"
+                if [ ! -f "$out" ]; then
+                    ffmpeg -loglevel error -i "$video" -ss 00:00:01 -vframes 1 -vf "scale=320:180:force_original_aspect_ratio=increase,crop=320:180" -q:v 3 "$out" -y
+                fi
+            done << 'EOF'
+${library.join("\n")}
+EOF`
+        ]
+        batchThumbGenProcess.running = true
+    }
+
     function updateWallpaperPalette(monitor, videoPath, forceRefresh) {
         paletteMonitor = monitor
         if (typeof Theme === "undefined" || Theme.currentTheme !== Theme.dynamic) return
@@ -1906,6 +2024,8 @@ PluginComponent {
         syncVideosWithData()
         pauseStateDebounce.restart()
         checkBatteryStatus()
+        rescanMonitoredFolders(false)
+        pregenerateThumbnails()
     }
 
     Component.onDestruction: {

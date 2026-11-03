@@ -73,7 +73,20 @@ const translations = {
             // ── Battery & Power ──
             "Battery & Power": "电池与电源",
             "Pause on battery power": "使用电池时暂停",
-            "Automatically pause video wallpaper when unplugged to save battery life": "拔下电源时自动暂停视频壁纸以节省电池电量"
+            "Automatically pause video wallpaper when unplugged to save battery life": "拔下电源时自动暂停视频壁纸以节省电池电量",
+            // ── Folder & Scanning ──
+            "Refresh Wallpapers": "刷新壁纸",
+            "Rescan Wallpapers": "重新扫描壁纸",
+            "Auto-detect new wallpapers": "自动检测新壁纸",
+            "Automatically scan wallpaper folders for new videos": "自动扫描壁纸文件夹中的新视频",
+            "Monitored Folders": "监控文件夹",
+            "Rescan complete": "扫描完成",
+            "Found %1 wallpapers (%2 new)": "发现 %1 个壁纸（新增 %2 个）",
+            "Display & Video": "画面与显示",
+            "Folders & Scanning": "文件夹与扫描",
+            "Open Settings": "打开设置",
+            "Remove": "移除",
+            "Remove from library": "从视频库中移除"
         }
     }
 }

@@ -6,6 +6,10 @@ import Quickshell
 import Quickshell.Io
 import qs.Common
 import qs.Widgets
+import qs.Services
+import qs.DCommon.Widgets
+import qs.Modules.ControlCenter.Widgets
+import qs.Modules.Settings.Widgets
 import qs.Modules.Plugins
 import qs.Modals.FileBrowser
 
@@ -54,7 +58,7 @@ PluginComponent {
     }
     ccWidgetIsActive: root.getCurrentVideoPath() !== ""
     ccWidgetIsToggle: true
-    ccDetailHeight: 260
+    ccDetailHeight: 480
 
     onCcWidgetToggled: root.cycleNextVideo()
 
@@ -82,7 +86,6 @@ PluginComponent {
         repeat: false
         onTriggered: root.syncSelectionToPlayback()
     }
-
 
     function syncSelectionToPlayback() {
         const currentPath = getCurrentVideoPath()
@@ -154,14 +157,50 @@ PluginComponent {
         if (nextVideo) root.setCurrentVideo(nextVideo)
     }
 
-    function openSystemFilePicker() {
-        systemFilePickerProcess.selectedFile = ""
-        systemFilePickerProcess.running = true
+    function saveSetting(key, value) {
+        if (!pluginService) return
+        pluginService.savePluginData("mpvpaper", key, value)
+        root.refreshTrigger++
+    }
+
+    function getVideoSettings() {
+        const videoPath = getCurrentVideoPath()
+        if (!videoPath || !pluginService) return {}
+        const allSettings = pluginService.loadPluginData("mpvpaper", "videoSettings", {})
+        return allSettings[videoPath] || {}
+    }
+
+    function getVideoSetting(key, defaultValue) {
+        const settings = getVideoSettings()
+        return settings[key] !== undefined ? settings[key] : defaultValue
+    }
+
+    function saveVideoSetting(key, value) {
+        const videoPath = getCurrentVideoPath()
+        if (!videoPath || !pluginService) return
+
+        var allSettings = pluginService.loadPluginData("mpvpaper", "videoSettings", {})
+        if (!allSettings[videoPath]) allSettings[videoPath] = {}
+        allSettings[videoPath][key] = value
+        pluginService.savePluginData("mpvpaper", "videoSettings", allSettings)
+        root.refreshTrigger++
+    }
+
+    function getWallpaperFolders() {
+        if (!pluginService) return []
+        const folders = pluginService.loadPluginData("mpvpaper", "wallpaperFolders", null)
+        if (Array.isArray(folders) && folders.length > 0) return folders
+        const library = getPlaylist()
+        const inferred = []
+        for (const video of library) {
+            const dir = video.substring(0, video.lastIndexOf("/"))
+            if (dir && inferred.indexOf(dir) === -1) inferred.push(dir)
+        }
+        return inferred
     }
 
     function addToPlaylist(videoPath) {
         if (!pluginService || !videoPath) return false
-
         const trimmedPath = videoPath.trim()
         if (!trimmedPath) return false
 
@@ -170,8 +209,50 @@ PluginComponent {
 
         library.push(trimmedPath)
         pluginService.savePluginData("mpvpaper", "videoLibrary", library)
+
+        // Track folder
+        const dir = trimmedPath.substring(0, trimmedPath.lastIndexOf("/"))
+        if (dir) {
+            const folders = getWallpaperFolders().slice()
+            if (folders.indexOf(dir) === -1) {
+                folders.push(dir)
+                pluginService.savePluginData("mpvpaper", "wallpaperFolders", folders)
+            }
+        }
+
         refreshTrigger++
         return true
+    }
+
+    function removeFromPlaylist(index) {
+        if (!pluginService) return
+        var library = getPlaylist().slice()
+        if (index < 0 || index >= library.length) return
+
+        const videoPath = library[index]
+        library.splice(index, 1)
+        pluginService.savePluginData("mpvpaper", "videoLibrary", library)
+
+        var monitorVideos = pluginService.loadPluginData("mpvpaper", "monitorVideos", {})
+        let assignmentsChanged = false
+        for (const monitor in monitorVideos) {
+            if (monitorVideos[monitor] === videoPath) {
+                delete monitorVideos[monitor]
+                assignmentsChanged = true
+            }
+        }
+        if (assignmentsChanged)
+            pluginService.savePluginData("mpvpaper", "monitorVideos", monitorVideos)
+
+        if (pluginService.loadPluginData("mpvpaper", "allMonitorsVideo", "") === videoPath)
+            pluginService.savePluginData("mpvpaper", "allMonitorsVideo", "")
+
+        refreshTrigger++
+    }
+
+    function openSystemFilePicker() {
+        systemFilePickerProcess.selectedFile = ""
+        systemFilePickerProcess.running = true
     }
 
     Process {
@@ -201,6 +282,101 @@ PluginComponent {
         }
     }
 
+    function openSystemDirectoryPicker() {
+        systemDirectoryPickerProcess.selectedDir = ""
+        systemDirectoryPickerProcess.running = true
+    }
+
+    Process {
+        id: systemDirectoryPickerProcess
+        property string selectedDir: ""
+        command: ["bash", "-c", `
+            if command -v zenity >/dev/null 2>&1; then
+                zenity --file-selection --directory --title="${MpvPaperI18n.tr("Select Video Folder", "mpvpaper")}"
+            elif command -v kdialog >/dev/null 2>&1; then
+                kdialog --getexistingdirectory ~
+            else
+                echo "ERROR: No file picker available"
+                exit 1
+            fi
+        `]
+        stdout: SplitParser { onRead: (data) => { systemDirectoryPickerProcess.selectedDir += data } }
+        onExited: (code) => {
+            const dir = selectedDir.trim()
+            if (code === 0 && dir !== "") {
+                const folders = getWallpaperFolders().slice()
+                if (folders.indexOf(dir) === -1) {
+                    folders.push(dir)
+                    pluginService.savePluginData("mpvpaper", "wallpaperFolders", folders)
+                }
+                rescanMonitoredFolders(true)
+            }
+            selectedDir = ""
+        }
+    }
+
+    function rescanMonitoredFolders(showToast) {
+        if (folderRescanProcess.running) return
+        const folders = getWallpaperFolders()
+        if (folders.length === 0) {
+            if (showToast && typeof ToastService !== "undefined") {
+                ToastService.showWarning(
+                    MpvPaperI18n.tr("No Videos Found", "mpvpaper"),
+                    MpvPaperI18n.tr("No supported video files found in selected folder", "mpvpaper")
+                )
+            }
+            return
+        }
+
+        folderRescanProcess.notifyUser = !!showToast
+        folderRescanProcess.scanOutput = ""
+        const folderArgs = folders.map(f => `"${f}"`).join(" ")
+        folderRescanProcess.command = [
+            "bash", "-c",
+            `for d in ${folderArgs}; do [ -d "$d" ] && find "$d" -maxdepth 2 -type f -regextype posix-extended -iregex '.*\\.(mp4|mkv|webm|avi|mov|flv|wmv|m4v)'; done`
+        ]
+        folderRescanProcess.running = true
+    }
+
+    Process {
+        id: folderRescanProcess
+        property bool notifyUser: false
+        property string scanOutput: ""
+        stdout: SplitParser { onRead: (data) => { folderRescanProcess.scanOutput += data + "\n" } }
+        onExited: (code) => {
+            if (code === 0 && scanOutput.trim() !== "") {
+                const files = scanOutput.trim().split("\n").map(f => f.trim()).filter(f => f !== "")
+                if (files.length > 0 && pluginService) {
+                    const currentLibrary = getPlaylist().slice()
+                    let addedCount = 0
+                    for (const f of files) {
+                        if (currentLibrary.indexOf(f) === -1) {
+                            currentLibrary.push(f)
+                            addedCount++
+                        }
+                    }
+                    if (addedCount > 0) {
+                        pluginService.savePluginData("mpvpaper", "videoLibrary", currentLibrary)
+                    }
+                    if (notifyUser && typeof ToastService !== "undefined") {
+                        ToastService.showInfo(
+                            MpvPaperI18n.tr("Rescan complete", "mpvpaper"),
+                            MpvPaperI18n.tr("Found %1 wallpapers (%2 new)", "mpvpaper").arg(currentLibrary.length).arg(addedCount)
+                        )
+                    }
+                    root.refreshTrigger++
+                }
+            } else if (notifyUser && typeof ToastService !== "undefined") {
+                ToastService.showInfo(
+                    MpvPaperI18n.tr("Rescan complete", "mpvpaper"),
+                    MpvPaperI18n.tr("Found %1 wallpapers (%2 new)", "mpvpaper").arg(root.getPlaylist().length).arg(0)
+                )
+            }
+            scanOutput = ""
+            notifyUser = false
+        }
+    }
+
     FileBrowserSurfaceModal {
         id: videoFileBrowser
         parentPopout: root.fileBrowserParentPopout
@@ -216,8 +392,16 @@ PluginComponent {
         }
     }
 
-    horizontalBarPill: Component { DankIcon { name: "movie"; size: root.iconSize; color: Theme.primary } }
-    verticalBarPill: Component { DankIcon { name: "movie"; size: root.iconSize; color: Theme.primary } }
+    Timer {
+        id: volumeDebounceTimer
+        interval: 350
+        repeat: false
+        property int pendingVal: 0
+        onTriggered: root.saveVideoSetting("volume", pendingVal)
+    }
+
+    horizontalBarPill: Component { DIcon { name: "movie"; size: root.iconSize; color: Theme.primary } }
+    verticalBarPill: Component { DIcon { name: "movie"; size: root.iconSize; color: Theme.primary } }
 
     Component {
         id: popoutBody
@@ -231,8 +415,6 @@ PluginComponent {
                 if (root.fileBrowserParentPopout === mpvPaperPopout)
                     root.fileBrowserParentPopout = null
             }
-            // Keep the built-in PopoutComponent header empty.  This plugin uses
-            // a single custom header row so every section shares one padding grid.
             headerText: ""
             detailsText: ""
             showCloseButton: false
@@ -255,8 +437,7 @@ PluginComponent {
                     anchors.margins: root.popoutPadding
                     spacing: Theme.spacingM
 
-                    // Compact single-line header.  Title, controls, grid and footer
-                    // all start/end on the same content bounds.
+                    // Compact header row
                     Item {
                         width: parent.width
                         height: 32
@@ -264,6 +445,12 @@ PluginComponent {
                         RowLayout {
                             anchors.fill: parent
                             spacing: Theme.spacingS
+
+                            DIcon {
+                                name: "movie"
+                                size: 20
+                                color: Theme.primary
+                            }
 
                             StyledText {
                                 text: MpvPaperI18n.tr("Video Wallpaper", "mpvpaper")
@@ -282,21 +469,27 @@ PluginComponent {
 
                             Item { Layout.fillWidth: true }
 
-                            // Slideshow skip button
-                            DankActionButton {
+                            DActionButton {
+                                iconName: "refresh"
+                                iconSize: 18
+                                buttonSize: 32
+                                tooltipText: MpvPaperI18n.tr("Rescan Wallpapers", "mpvpaper")
+                                onClicked: root.rescanMonitoredFolders(true)
+                            }
+
+                            DActionButton {
                                 iconName: "skip_next"
                                 iconSize: 18
                                 buttonSize: 32
-                                opacity: 0.8
+                                tooltipText: MpvPaperI18n.tr("Next wallpaper", "mpvpaper")
                                 visible: pluginData.slideshowEnabled || false
                                 onClicked: root.cycleNextVideo()
                             }
 
-                            DankActionButton {
+                            DActionButton {
                                 iconName: "close"
                                 iconSize: 18
                                 buttonSize: 32
-                                opacity: 0.8
                                 onClicked: mpvPaperPopout.close()
                             }
                         }
@@ -311,7 +504,6 @@ PluginComponent {
                             anchors.fill: parent
                             spacing: Theme.spacingM
 
-                            // "Same on all" toggle
                             Rectangle {
                                 Layout.alignment: Qt.AlignVCenter
                                 implicitWidth: sameAllRow.implicitWidth + Theme.spacingM * 2
@@ -321,14 +513,16 @@ PluginComponent {
                                 border.width: 1
                                 border.color: root.sameOnAllMonitors ? Theme.primary : Theme.outlineHeavy
 
-                                Behavior on color { ColorAnimation { duration: Theme.shortDuration } }
-                                Behavior on border.color { ColorAnimation { duration: Theme.shortDuration } }
-
                                 Row {
                                     id: sameAllRow
                                     anchors.centerIn: parent
                                     spacing: Theme.spacingXS
-                                    DankIcon { name: "linked_services"; size: 16; color: root.sameOnAllMonitors ? Theme.primary : Theme.surfaceText; anchors.verticalCenter: parent.verticalCenter }
+                                    DIcon {
+                                        name: "linked_services"
+                                        size: 16
+                                        color: root.sameOnAllMonitors ? Theme.primary : Theme.surfaceText
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
                                     StyledText {
                                         text: MpvPaperI18n.tr("All", "mpvpaper")
                                         font.pixelSize: Theme.fontSizeSmall
@@ -358,7 +552,6 @@ PluginComponent {
                                 }
                             }
 
-                            // Per-monitor selector (hidden when "same on all" is active)
                             Rectangle {
                                 Layout.fillWidth: true
                                 Layout.alignment: Qt.AlignVCenter
@@ -369,23 +562,32 @@ PluginComponent {
                                 border.color: Theme.outlineHeavy
                                 opacity: root.sameOnAllMonitors ? 0.4 : 1.0
 
-                                Behavior on opacity { NumberAnimation { duration: Theme.shortDuration } }
-
                                 RowLayout {
                                     anchors.fill: parent
                                     anchors.leftMargin: Theme.spacingS
                                     anchors.rightMargin: Theme.spacingS
 
-                                    DankActionButton { iconName: "chevron_left"; iconSize: 18; buttonSize: 30; enabled: !root.sameOnAllMonitors; onClicked: root.cycleMonitor(-1) }
+                                    DActionButton {
+                                        iconName: "chevron_left"
+                                        iconSize: 18
+                                        buttonSize: 30
+                                        enabled: !root.sameOnAllMonitors
+                                        onClicked: root.cycleMonitor(-1)
+                                    }
                                     StyledText {
                                         Layout.fillWidth: true
                                         text: root.sameOnAllMonitors ? MpvPaperI18n.tr("All Monitors", "mpvpaper") : (root.selectedMonitor || MpvPaperI18n.tr("No Monitors", "mpvpaper"))
                                         font.pixelSize: Theme.fontSizeMedium
                                         horizontalAlignment: Text.AlignHCenter
                                         elide: Text.ElideRight
-                                        wrapMode: Text.NoWrap
                                     }
-                                    DankActionButton { iconName: "chevron_right"; iconSize: 18; buttonSize: 30; enabled: !root.sameOnAllMonitors; onClicked: root.cycleMonitor(1) }
+                                    DActionButton {
+                                        iconName: "chevron_right"
+                                        iconSize: 18
+                                        buttonSize: 30
+                                        enabled: !root.sameOnAllMonitors
+                                        onClicked: root.cycleMonitor(1)
+                                    }
                                 }
                             }
                         }
@@ -425,66 +627,93 @@ PluginComponent {
                                 height: videoGrid.cellHeight
                                 property bool isSelected: { root.refreshTrigger; return root.getCurrentVideoPath() === modelData }
 
+                                readonly property string hashStr: {
+                                    let h = 0
+                                    for (let i = 0; i < modelData.length; i++) {
+                                        h = ((h << 5) - h) + modelData.charCodeAt(i)
+                                        h = h & h
+                                    }
+                                    return Math.abs(h).toString()
+                                }
+                                readonly property string thumbDir: StandardPaths.writableLocation(StandardPaths.GenericCacheLocation).toString().replace("file://", "") + "/DankMaterialShell/mpvpaper_thumbnails"
+                                readonly property string expectedThumb: thumbDir + "/" + hashStr + "_thumb.jpg"
+
                                 Rectangle {
-                                    anchors.fill: parent; anchors.margins: Theme.spacingXS
+                                    anchors.fill: parent
+                                    anchors.margins: Theme.spacingXS
                                     color: Theme.withAlpha(Theme.surfaceContainerHighest, Theme.popupTransparency)
-                                    radius: Theme.cornerRadius; clip: true
+                                    radius: Theme.cornerRadius
+                                    clip: true
 
                                     Rectangle {
-                                        anchors.fill: parent; radius: parent.radius; z: 9; color: isSelected ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15) : "transparent"
-                                        Behavior on color { ColorAnimation { duration: Theme.shortDuration } }
+                                        anchors.fill: parent
+                                        radius: parent.radius
+                                        z: 9
+                                        color: isSelected ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15) : "transparent"
                                     }
 
                                     Rectangle {
-                                        anchors.fill: parent; radius: parent.radius; z: 10; color: "transparent"; border.width: isSelected ? 3 : 0; border.color: Theme.primary
-                                        Behavior on border.width { NumberAnimation { duration: Theme.shortDuration } }
+                                        anchors.fill: parent
+                                        radius: parent.radius
+                                        z: 10
+                                        color: "transparent"
+                                        border.width: isSelected ? 3 : 0
+                                        border.color: Theme.primary
                                     }
-
-                                    Rectangle { id: maskRect; width: thumbnailImage.width; height: thumbnailImage.height; radius: Theme.cornerRadius; visible: false; layer.enabled: true }
 
                                     Image {
-                                        id: thumbnailImage
-                                        anchors.fill: parent; fillMode: Image.PreserveAspectCrop; asynchronous: true; cache: true
-                                        layer.enabled: true; layer.effect: MultiEffect { maskEnabled: true; maskSource: maskRect }
-                                        property string videoPath: modelData
-                                        property string thumbnailPath: ""
-                                        property string thumbnailCacheDir: ""
-                                        Component.onCompleted: generateThumbnail()
-                                        function generateThumbnail() {
-                                            thumbnailCacheDir = StandardPaths.writableLocation(StandardPaths.GenericCacheLocation).toString().replace("file://", "") + "/DankMaterialShell/mpvpaper_thumbnails"
-                                            const hash = videoPath.split('').reduce((a, b) => {
-                                                a = ((a << 5) - a) + b.charCodeAt(0)
-                                                return a & a
-                                            }, 0)
-                                            const fileName = Math.abs(hash) + "_thumb.jpg"
-                                            const cached = StandardPaths.locate(
+                                        id: popoutThumbImg
+                                        anchors.fill: parent
+                                        fillMode: Image.PreserveAspectCrop
+                                        asynchronous: true
+                                        cache: true
+                                        source: {
+                                            const loc = StandardPaths.locate(
                                                 StandardPaths.GenericCacheLocation,
-                                                "DankMaterialShell/mpvpaper_thumbnails/" + fileName,
+                                                "DankMaterialShell/mpvpaper_thumbnails/" + hashStr + "_thumb.jpg",
                                                 StandardPaths.LocateFile
                                             )
-                                            thumbnailPath = thumbnailCacheDir + "/" + fileName
-                                            if (cached.toString() !== "") {
-                                                thumbnailImage.source = cached
-                                                return
+                                            if (loc.toString() !== "") {
+                                                const s = loc.toString()
+                                                return s.startsWith("file://") ? s : "file://" + s
                                             }
-                                            thumbGen.running = true
+                                            return ""
                                         }
-                                        Process {
-                                            id: thumbGen
-                                            command: [
-                                                "bash", "-c",
-                                                'mkdir -p -- "$1" && ffmpeg -loglevel error -i "$2" -ss 00:00:01 -vframes 1 -vf "scale=320:180:force_original_aspect_ratio=increase,crop=320:180" -q:v 3 "$3" -y',
-                                                "mpvpaper-thumbnail", thumbnailImage.thumbnailCacheDir, modelData, thumbnailImage.thumbnailPath
-                                            ]
-                                            onExited: code => {
-                                                if (code === 0)
-                                                    thumbnailImage.source = "file://" + thumbnailImage.thumbnailPath
-                                            }
+
+                                        Component.onCompleted: {
+                                            if (source.toString() === "") popoutThumbGen.running = true
+                                        }
+
+                                        onStatusChanged: {
+                                            if (status === Image.Error || (status === Image.Null && source.toString() === ""))
+                                                popoutThumbGen.running = true
                                         }
                                     }
-                                    DankIcon { anchors.centerIn: parent; name: "movie"; size: 24; color: Theme.primary; visible: thumbnailImage.status !== Image.Ready }
+
+                                    Process {
+                                        id: popoutThumbGen
+                                        command: [
+                                            "bash", "-c",
+                                            'mkdir -p -- "$1" && ffmpeg -loglevel error -i "$2" -ss 00:00:01 -vframes 1 -vf "scale=320:180:force_original_aspect_ratio=increase,crop=320:180" -q:v 3 "$3" -y',
+                                            "mpvpaper-popout-thumb", thumbDir, modelData, expectedThumb
+                                        ]
+                                        onExited: code => {
+                                            if (code === 0) popoutThumbImg.source = "file://" + expectedThumb
+                                        }
+                                    }
+
+                                    DIcon {
+                                        anchors.centerIn: parent
+                                        name: "movie"
+                                        size: 24
+                                        color: Theme.primary
+                                        visible: popoutThumbImg.status !== Image.Ready
+                                    }
+
                                     MouseArea {
-                                        anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
                                         onClicked: {
                                             videoGrid.currentIndex = index
                                             if (modelData) root.setCurrentVideo(modelData)
@@ -495,8 +724,7 @@ PluginComponent {
                         }
                     }
 
-                    // Bottom navigation: the pager is geometrically centered;
-                    // the library button is independently pinned to the right.
+                    // Bottom navigation
                     Item {
                         width: parent.width
                         height: 40
@@ -505,7 +733,7 @@ PluginComponent {
                             anchors.centerIn: parent
                             spacing: Theme.spacingS
 
-                            DankActionButton {
+                            DActionButton {
                                 iconName: "chevron_left"
                                 iconSize: 18
                                 buttonSize: 32
@@ -525,7 +753,7 @@ PluginComponent {
                                 verticalAlignment: Text.AlignVCenter
                             }
 
-                            DankActionButton {
+                            DActionButton {
                                 iconName: "chevron_right"
                                 iconSize: 18
                                 buttonSize: 32
@@ -535,18 +763,29 @@ PluginComponent {
                             }
                         }
 
-                        DankActionButton {
+                        Row {
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
-                            iconName: "folder_open"
-                            iconSize: 18
-                            buttonSize: 32
-                            opacity: 0.7
-                            onClicked: root.openSystemFilePicker()
+                            spacing: Theme.spacingXS
+
+                            DActionButton {
+                                iconName: "folder_open"
+                                iconSize: 18
+                                buttonSize: 32
+                                tooltipText: MpvPaperI18n.tr("Add Folder", "mpvpaper")
+                                onClicked: root.openSystemDirectoryPicker()
+                            }
+
+                            DActionButton {
+                                iconName: "add"
+                                iconSize: 18
+                                buttonSize: 32
+                                tooltipText: MpvPaperI18n.tr("Add Video", "mpvpaper")
+                                onClicked: root.openSystemFilePicker()
+                            }
                         }
                     }
                 }
-
             }
         }
     }
@@ -554,176 +793,467 @@ PluginComponent {
     ccDetailContent: Component {
         Item {
             id: ccDetailRoot
-            implicitHeight: 260
+            implicitHeight: root.ccDetailHeight
 
-            Column {
+            DFlickable {
                 anchors.fill: parent
-                anchors.margins: Theme.spacingM
-                spacing: Theme.spacingM
+                contentHeight: detailColumn.implicitHeight + Theme.spacingM * 2
+                clip: true
 
-                // Header with current video and actions
-                RowLayout {
+                Column {
+                    id: detailColumn
                     width: parent.width
-                    spacing: Theme.spacingS
-
-                    DankIcon {
-                        name: "movie"
-                        size: 20
-                        color: Theme.primary
-                    }
-
-                    StyledText {
-                        Layout.fillWidth: true
-                        text: {
-                            root.refreshTrigger
-                            const cur = root.getCurrentVideoPath()
-                            return cur ? cur.split("/").pop() : MpvPaperI18n.tr("No video selected", "mpvpaper")
-                        }
-                        font.pixelSize: Theme.fontSizeMedium
-                        font.weight: Font.Medium
-                        elide: Text.ElideRight
-                    }
-
-                    DankActionButton {
-                        iconName: "skip_next"
-                        iconSize: 18
-                        buttonSize: 30
-                        opacity: 0.85
-                        onClicked: root.cycleNextVideo()
-                    }
-
-                    DankActionButton {
-                        iconName: "folder_open"
-                        iconSize: 18
-                        buttonSize: 30
-                        opacity: 0.85
-                        onClicked: root.openSystemFilePicker()
-                    }
-                }
-
-                // Horizontal scroll list of wallpapers
-                ListView {
-                    id: ccVideoList
-                    width: parent.width
-                    height: 120
-                    orientation: ListView.Horizontal
-                    spacing: Theme.spacingS
-                    clip: true
-
-                    model: {
-                        root.refreshTrigger
-                        return root.getPlaylist()
-                    }
-
-                    delegate: Rectangle {
-                        width: 160
-                        height: 100
-                        anchors.verticalCenter: parent.verticalCenter
-                        radius: Theme.cornerRadius
-                        color: Theme.withAlpha(Theme.surfaceContainerHighest, Theme.popupTransparency)
-                        border.width: root.getCurrentVideoPath() === modelData ? 2 : 1
-                        border.color: root.getCurrentVideoPath() === modelData ? Theme.primary : Theme.outlineHeavy
-                        clip: true
-
-                        Image {
-                            anchors.fill: parent
-                            anchors.margins: 2
-                            fillMode: Image.PreserveAspectCrop
-                            asynchronous: true
-                            cache: true
-                            source: {
-                                const hash = modelData.split("").reduce((a, b) => ((a << 5) - a) + b.charCodeAt(0), 0)
-                                const fileName = Math.abs(hash) + "_thumb.jpg"
-                                const cached = StandardPaths.locate(
-                                    StandardPaths.GenericCacheLocation,
-                                    "DankMaterialShell/mpvpaper_thumbnails/" + fileName,
-                                    StandardPaths.LocateFile
-                                )
-                                return cached.toString() !== "" ? cached : ""
-                            }
-                        }
-
-                        DankIcon {
-                            anchors.centerIn: parent
-                            name: "movie"
-                            size: 24
-                            color: Theme.primary
-                            opacity: 0.6
-                        }
-
-                        Rectangle {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.bottom: parent.bottom
-                            height: 26
-                            color: Qt.rgba(0, 0, 0, 0.6)
-
-                            StyledText {
-                                anchors.fill: parent
-                                anchors.margins: 4
-                                text: modelData.split("/").pop()
-                                font.pixelSize: Theme.fontSizeSmall * 0.85
-                                color: "white"
-                                elide: Text.ElideRight
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.setCurrentVideo(modelData)
-                        }
-                    }
-                }
-
-                // Bottom row: status & slideshow button
-                RowLayout {
-                    width: parent.width
+                    anchors.top: parent.top
+                    anchors.topMargin: Theme.spacingS
                     spacing: Theme.spacingM
 
-                    StyledText {
-                        Layout.fillWidth: true
-                        text: MpvPaperI18n.tr("%1 wallpapers", "mpvpaper").arg(root.getPlaylist().length)
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.surfaceText
-                        opacity: 0.7
-                    }
+                    // ── Header Actions Strip ──
+                    RowLayout {
+                        width: parent.width
+                        spacing: Theme.spacingS
 
-                    Rectangle {
-                        implicitWidth: ccSlideshowRow.implicitWidth + Theme.spacingM
-                        implicitHeight: 28
-                        radius: Theme.cornerRadius
-                        color: (pluginData && pluginData.slideshowEnabled) ? Theme.withAlpha(Theme.primary, 0.15) : "transparent"
-                        border.width: 1
-                        border.color: (pluginData && pluginData.slideshowEnabled) ? Theme.primary : Theme.outlineHeavy
+                        DIcon {
+                            name: "movie"
+                            size: 22
+                            color: Theme.primary
+                        }
 
-                        Row {
-                            id: ccSlideshowRow
-                            anchors.centerIn: parent
-                            spacing: Theme.spacingXS
-                            DankIcon {
-                                name: "autorenew"
-                                size: 14
-                                color: (pluginData && pluginData.slideshowEnabled) ? Theme.primary : Theme.surfaceText
-                                anchors.verticalCenter: parent.verticalCenter
-                            }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+
                             StyledText {
-                                text: MpvPaperI18n.tr("Slideshow", "mpvpaper")
+                                Layout.fillWidth: true
+                                text: {
+                                    root.refreshTrigger
+                                    const cur = root.getCurrentVideoPath()
+                                    return cur ? cur.split("/").pop() : MpvPaperI18n.tr("No video selected", "mpvpaper")
+                                }
+                                font.pixelSize: Theme.fontSizeMedium
+                                font.weight: Font.Medium
+                                color: Theme.surfaceText
+                                elide: Text.ElideRight
+                            }
+
+                            StyledText {
+                                Layout.fillWidth: true
+                                text: {
+                                    const count = root.getPlaylist().length
+                                    return MpvPaperI18n.tr("%1 wallpapers", "mpvpaper").arg(count)
+                                }
                                 font.pixelSize: Theme.fontSizeSmall * 0.9
-                                color: (pluginData && pluginData.slideshowEnabled) ? Theme.primary : Theme.surfaceText
-                                anchors.verticalCenter: parent.verticalCenter
+                                color: Theme.surfaceVariantText
+                                elide: Text.ElideRight
                             }
                         }
 
-                        MouseArea {
+                        DActionButton {
+                            iconName: "refresh"
+                            iconSize: 18
+                            buttonSize: 32
+                            tooltipText: MpvPaperI18n.tr("Rescan Wallpapers", "mpvpaper")
+                            onClicked: root.rescanMonitoredFolders(true)
+                        }
+
+                        DActionButton {
+                            iconName: "skip_next"
+                            iconSize: 18
+                            buttonSize: 32
+                            tooltipText: MpvPaperI18n.tr("Next wallpaper", "mpvpaper")
+                            onClicked: root.cycleNextVideo()
+                        }
+
+                        DActionButton {
+                            iconName: "add"
+                            iconSize: 18
+                            buttonSize: 32
+                            tooltipText: MpvPaperI18n.tr("Add Video", "mpvpaper")
+                            onClicked: root.openSystemFilePicker()
+                        }
+
+                        DActionButton {
+                            iconName: "folder_open"
+                            iconSize: 18
+                            buttonSize: 32
+                            tooltipText: MpvPaperI18n.tr("Add Folder", "mpvpaper")
+                            onClicked: root.openSystemDirectoryPicker()
+                        }
+                    }
+
+                    // ── Horizontal Wallpaper Carousel ──
+                    Item {
+                        width: parent.width
+                        height: 110
+
+                        ListView {
+                            id: ccVideoList
                             anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                if (!pluginService) return
-                                const current = !!pluginData.slideshowEnabled
-                                pluginService.savePluginData("mpvpaper", "slideshowEnabled", !current)
+                            orientation: ListView.Horizontal
+                            spacing: Theme.spacingS
+                            clip: true
+
+                            model: {
+                                root.refreshTrigger
+                                return root.getPlaylist()
+                            }
+
+                            delegate: Rectangle {
+                                id: cardRoot
+                                width: 160
+                                height: 100
+                                anchors.verticalCenter: parent.verticalCenter
+                                radius: Theme.cornerRadius
+                                color: Theme.withAlpha(Theme.surfaceContainerHighest, Theme.popupTransparency)
+                                border.width: isSelected ? 2 : 1
+                                border.color: isSelected ? Theme.primary : Theme.outlineHeavy
+                                clip: true
+
+                                readonly property bool isSelected: {
+                                    root.refreshTrigger
+                                    return root.getCurrentVideoPath() === modelData
+                                }
+                                readonly property string videoPath: modelData
+                                readonly property string hashStr: {
+                                    let h = 0
+                                    for (let i = 0; i < modelData.length; i++) {
+                                        h = ((h << 5) - h) + modelData.charCodeAt(i)
+                                        h = h & h
+                                    }
+                                    return Math.abs(h).toString()
+                                }
+                                readonly property string thumbDir: StandardPaths.writableLocation(StandardPaths.GenericCacheLocation).toString().replace("file://", "") + "/DankMaterialShell/mpvpaper_thumbnails"
+                                readonly property string expectedThumbPath: thumbDir + "/" + hashStr + "_thumb.jpg"
+
+                                Image {
+                                    id: cardImg
+                                    anchors.fill: parent
+                                    anchors.margins: 1
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                    cache: true
+                                    source: {
+                                        const loc = StandardPaths.locate(
+                                            StandardPaths.GenericCacheLocation,
+                                            "DankMaterialShell/mpvpaper_thumbnails/" + cardRoot.hashStr + "_thumb.jpg",
+                                            StandardPaths.LocateFile
+                                        )
+                                        if (loc.toString() !== "") {
+                                            const s = loc.toString()
+                                            return s.startsWith("file://") ? s : "file://" + s
+                                        }
+                                        return ""
+                                    }
+
+                                    Component.onCompleted: {
+                                        if (source.toString() === "") cardThumbGen.running = true
+                                    }
+
+                                    onStatusChanged: {
+                                        if (status === Image.Error || (status === Image.Null && source.toString() === "")) {
+                                            cardThumbGen.running = true
+                                        }
+                                    }
+                                }
+
+                                Process {
+                                    id: cardThumbGen
+                                    command: [
+                                        "bash", "-c",
+                                        'mkdir -p -- "$1" && ffmpeg -loglevel error -i "$2" -ss 00:00:01 -vframes 1 -vf "scale=320:180:force_original_aspect_ratio=increase,crop=320:180" -q:v 3 "$3" -y',
+                                        "mpvpaper-card-thumb",
+                                        cardRoot.thumbDir,
+                                        cardRoot.videoPath,
+                                        cardRoot.expectedThumbPath
+                                    ]
+                                    onExited: code => {
+                                        if (code === 0) cardImg.source = "file://" + cardRoot.expectedThumbPath
+                                    }
+                                }
+
+                                DIcon {
+                                    anchors.centerIn: parent
+                                    name: "movie"
+                                    size: 26
+                                    color: Theme.primary
+                                    visible: cardImg.status !== Image.Ready
+                                }
+
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    height: 28
+                                    color: Qt.rgba(0, 0, 0, 0.65)
+
+                                    StyledText {
+                                        anchors.fill: parent
+                                        anchors.margins: 4
+                                        text: modelData.split("/").pop()
+                                        font.pixelSize: Theme.fontSizeSmall * 0.85
+                                        color: "white"
+                                        elide: Text.ElideRight
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                }
+
+                                Rectangle {
+                                    width: 20
+                                    height: 20
+                                    radius: 10
+                                    color: Theme.error
+                                    anchors.top: parent.top
+                                    anchors.right: parent.right
+                                    anchors.margins: 4
+                                    visible: cardMouseArea.containsMouse
+                                    z: 20
+
+                                    DIcon {
+                                        anchors.centerIn: parent
+                                        name: "close"
+                                        size: 14
+                                        color: Theme.onError
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.removeFromPlaylist(index)
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: cardMouseArea
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.setCurrentVideo(modelData)
+                                }
+                            }
+                        }
+                    }
+
+                    // ── Monitor Selection (Multi-Monitor) ──
+                    CcGroup {
+                        visible: root.monitors.length > 1
+
+                        CcToggleRow {
+                            iconName: "linked_services"
+                            text: MpvPaperI18n.tr("Same on all monitors", "mpvpaper")
+                            checked: root.sameOnAllMonitors
+                            onToggled: isChecked => {
+                                if (isChecked && !pluginService.loadPluginData("mpvpaper", "allMonitorsVideo", "")) {
+                                    const monitorVideos = pluginService.loadPluginData("mpvpaper", "monitorVideos", {})
+                                    const src = monitorVideos[root.selectedMonitor] || ""
+                                    if (src) pluginService.savePluginData("mpvpaper", "allMonitorsVideo", src)
+                                }
+                                root.sameOnAllMonitors = isChecked
+                                pluginService.savePluginData("mpvpaper", "sameOnAllMonitors", isChecked)
                                 root.refreshTrigger++
+                            }
+                        }
+
+                        CcListRow {
+                            visible: !root.sameOnAllMonitors
+                            iconName: "desktop_windows"
+                            title: MpvPaperI18n.tr("Monitor", "mpvpaper")
+
+                            DDropdown {
+                                anchors.verticalCenter: parent.verticalCenter
+                                compactMode: true
+                                dropdownWidth: 140
+                                options: root.monitors
+                                currentValue: root.selectedMonitor || MpvPaperI18n.tr("No Monitors", "mpvpaper")
+                                onValueChanged: val => root.selectedMonitor = val
+                            }
+                        }
+                    }
+
+                    // ── Slideshow & Rotation ──
+                    CcGroup {
+                        CcToggleRow {
+                            iconName: "autorenew"
+                            text: MpvPaperI18n.tr("Auto-cycle wallpapers", "mpvpaper")
+                            description: MpvPaperI18n.tr("Automatically rotate through videos in your library at a set interval", "mpvpaper")
+                            checked: !!(pluginData && pluginData.slideshowEnabled)
+                            onToggled: isChecked => root.saveSetting("slideshowEnabled", isChecked)
+                        }
+
+                        CcListRow {
+                            visible: !!(pluginData && pluginData.slideshowEnabled)
+                            iconName: "timer"
+                            title: MpvPaperI18n.tr("Slideshow Interval", "mpvpaper")
+
+                            DDropdown {
+                                anchors.verticalCenter: parent.verticalCenter
+                                compactMode: true
+                                dropdownWidth: 140
+                                options: [
+                                    MpvPaperI18n.tr("30 Seconds", "mpvpaper"),
+                                    MpvPaperI18n.tr("1 Minute", "mpvpaper"),
+                                    MpvPaperI18n.tr("5 Minutes", "mpvpaper"),
+                                    MpvPaperI18n.tr("10 Minutes", "mpvpaper"),
+                                    MpvPaperI18n.tr("30 Minutes", "mpvpaper"),
+                                    MpvPaperI18n.tr("1 Hour", "mpvpaper"),
+                                    MpvPaperI18n.tr("2 Hours", "mpvpaper")
+                                ]
+                                currentValue: {
+                                    const interval = (pluginData && pluginData.slideshowInterval) ? Number(pluginData.slideshowInterval) : 300
+                                    if (interval === 30) return MpvPaperI18n.tr("30 Seconds", "mpvpaper")
+                                    if (interval === 60) return MpvPaperI18n.tr("1 Minute", "mpvpaper")
+                                    if (interval === 300) return MpvPaperI18n.tr("5 Minutes", "mpvpaper")
+                                    if (interval === 600) return MpvPaperI18n.tr("10 Minutes", "mpvpaper")
+                                    if (interval === 1800) return MpvPaperI18n.tr("30 Minutes", "mpvpaper")
+                                    if (interval === 3600) return MpvPaperI18n.tr("1 Hour", "mpvpaper")
+                                    if (interval === 7200) return MpvPaperI18n.tr("2 Hours", "mpvpaper")
+                                    return MpvPaperI18n.tr("5 Minutes", "mpvpaper")
+                                }
+                                onValueChanged: val => {
+                                    let interval = 300
+                                    if (val === MpvPaperI18n.tr("30 Seconds", "mpvpaper")) interval = 30
+                                    else if (val === MpvPaperI18n.tr("1 Minute", "mpvpaper")) interval = 60
+                                    else if (val === MpvPaperI18n.tr("5 Minutes", "mpvpaper")) interval = 300
+                                    else if (val === MpvPaperI18n.tr("10 Minutes", "mpvpaper")) interval = 600
+                                    else if (val === MpvPaperI18n.tr("30 Minutes", "mpvpaper")) interval = 1800
+                                    else if (val === MpvPaperI18n.tr("1 Hour", "mpvpaper")) interval = 3600
+                                    else if (val === MpvPaperI18n.tr("2 Hours", "mpvpaper")) interval = 7200
+                                    root.saveSetting("slideshowInterval", interval)
+                                }
+                            }
+                        }
+
+                        CcToggleRow {
+                            visible: !!(pluginData && pluginData.slideshowEnabled)
+                            iconName: "shuffle"
+                            text: MpvPaperI18n.tr("Shuffle order", "mpvpaper")
+                            checked: !!(pluginData && pluginData.slideshowShuffle)
+                            onToggled: isChecked => root.saveSetting("slideshowShuffle", isChecked)
+                        }
+                    }
+
+                    // ── Power & Playback ──
+                    CcGroup {
+                        CcToggleRow {
+                            iconName: "battery_saver"
+                            text: MpvPaperI18n.tr("Pause on battery power", "mpvpaper")
+                            description: MpvPaperI18n.tr("Automatically pause video wallpaper when unplugged to save battery life", "mpvpaper")
+                            checked: !!(pluginData && pluginData.pauseOnBattery)
+                            onToggled: isChecked => root.saveSetting("pauseOnBattery", isChecked)
+                        }
+
+                        CcToggleRow {
+                            iconName: "fullscreen_exit"
+                            text: MpvPaperI18n.tr("Pause on Fullscreen", "mpvpaper")
+                            checked: (pluginData && pluginData.pauseOnFullscreen !== undefined) ? !!pluginData.pauseOnFullscreen : true
+                            onToggled: isChecked => root.saveSetting("pauseOnFullscreen", isChecked)
+                        }
+
+                        CcListRow {
+                            iconName: "lock"
+                            title: MpvPaperI18n.tr("Lock Screen Behavior", "mpvpaper")
+
+                            DDropdown {
+                                anchors.verticalCenter: parent.verticalCenter
+                                compactMode: true
+                                dropdownWidth: 150
+                                options: [
+                                    MpvPaperI18n.tr("Close Player", "mpvpaper"),
+                                    MpvPaperI18n.tr("Pause Playback", "mpvpaper")
+                                ]
+                                currentValue: (pluginData && pluginData.lockBehavior === "pause")
+                                    ? MpvPaperI18n.tr("Pause Playback", "mpvpaper")
+                                    : MpvPaperI18n.tr("Close Player", "mpvpaper")
+                                onValueChanged: val => {
+                                    const behavior = val === MpvPaperI18n.tr("Pause Playback", "mpvpaper") ? "pause" : "stop"
+                                    root.saveSetting("lockBehavior", behavior)
+                                }
+                            }
+                        }
+                    }
+
+                    // ── Display & Audio Settings ──
+                    CcGroup {
+                        CcListRow {
+                            iconName: "aspect_ratio"
+                            title: MpvPaperI18n.tr("Tiling Mode", "mpvpaper")
+
+                            DDropdown {
+                                anchors.verticalCenter: parent.verticalCenter
+                                compactMode: true
+                                dropdownWidth: 180
+                                options: [
+                                    MpvPaperI18n.tr("Fill Screen (Crop)", "mpvpaper"),
+                                    MpvPaperI18n.tr("Fit Screen (Letterbox)", "mpvpaper"),
+                                    MpvPaperI18n.tr("Stretch Fill", "mpvpaper")
+                                ]
+                                currentValue: {
+                                    root.refreshTrigger
+                                    const panscan = root.getVideoSetting("panscan", 1.0)
+                                    if (panscan === 1.0) return MpvPaperI18n.tr("Fill Screen (Crop)", "mpvpaper")
+                                    if (panscan === 0.0) return MpvPaperI18n.tr("Fit Screen (Letterbox)", "mpvpaper")
+                                    return MpvPaperI18n.tr("Stretch Fill", "mpvpaper")
+                                }
+                                onValueChanged: val => {
+                                    if (val === MpvPaperI18n.tr("Fill Screen (Crop)", "mpvpaper")) root.saveVideoSetting("panscan", 1.0)
+                                    else if (val === MpvPaperI18n.tr("Fit Screen (Letterbox)", "mpvpaper")) root.saveVideoSetting("panscan", 0.0)
+                                    else root.saveVideoSetting("panscan", 0.5)
+                                }
+                            }
+                        }
+
+                        CcListRow {
+                            iconName: "memory"
+                            title: MpvPaperI18n.tr("Hardware Decoding", "mpvpaper")
+
+                            DDropdown {
+                                anchors.verticalCenter: parent.verticalCenter
+                                compactMode: true
+                                dropdownWidth: 120
+                                options: ["auto", "no", "vaapi", "vdpau", "nvdec"]
+                                currentValue: {
+                                    root.refreshTrigger
+                                    return root.getVideoSetting("hwdec", "auto")
+                                }
+                                onValueChanged: val => root.saveVideoSetting("hwdec", val)
+                            }
+                        }
+
+                        SettingsSliderRow {
+                            iconName: "volume_up"
+                            text: MpvPaperI18n.tr("Volume", "mpvpaper")
+                            value: {
+                                root.refreshTrigger
+                                return root.getVideoSetting("volume", 0)
+                            }
+                            minimum: 0
+                            maximum: 100
+                            step: 1
+                            onSliderValueChanged: val => {
+                                volumeDebounceTimer.pendingVal = val
+                                volumeDebounceTimer.restart()
+                            }
+                        }
+                    }
+
+                    // ── Folders & Scanning ──
+                    CcGroup {
+                        CcToggleRow {
+                            iconName: "sync"
+                            text: MpvPaperI18n.tr("Auto-detect new wallpapers", "mpvpaper")
+                            description: MpvPaperI18n.tr("Automatically scan wallpaper folders for new videos", "mpvpaper")
+                            checked: (pluginData && pluginData.autoDetectFolders !== undefined) ? !!pluginData.autoDetectFolders : true
+                            onToggled: isChecked => root.saveSetting("autoDetectFolders", isChecked)
+                        }
+
+                        CcListRow {
+                            iconName: "folder"
+                            title: MpvPaperI18n.tr("Monitored Folders", "mpvpaper")
+                            subtitle: root.getWallpaperFolders().length + " " + MpvPaperI18n.tr("folder(s)", "mpvpaper")
+
+                            DButton {
+                                text: MpvPaperI18n.tr("Add Folder", "mpvpaper")
+                                iconName: "folder_open"
+                                buttonHeight: Theme.buttonHeightXS
+                                onClicked: root.openSystemDirectoryPicker()
                             }
                         }
                     }
@@ -732,7 +1262,7 @@ PluginComponent {
         }
     }
 
-    DankPopout {
+    DPopout {
         id: mpvPaperPopout
         layerNamespace: "dms:plugins:mpvpaper"
         popupWidth: root.popoutWidth
@@ -747,9 +1277,10 @@ PluginComponent {
             return
         }
 
-        const barPosition = root.axis?.edge === "left" ? 2
-            : (root.axis?.edge === "right" ? 3
-            : (root.axis?.edge === "top" ? 0 : 1))
+        const edge = root.axis ? root.axis.edge : ""
+        const barPosition = edge === "left" ? 2
+            : (edge === "right" ? 3
+            : (edge === "top" ? 0 : 1))
         mpvPaperPopout.setTriggerPosition(
             x, y, width, section, screen, barPosition,
             root.barThickness, root.barSpacing, root.barConfig

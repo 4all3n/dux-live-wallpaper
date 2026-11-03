@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Common
 import qs.Widgets
+import qs.DCommon.Widgets
 import qs.Services
 import qs.Modules.Plugins
 import qs.Modals.FileBrowser
@@ -90,7 +91,7 @@ PluginSettings {
             anchors.verticalCenter: parent.verticalCenter
         }
 
-        DankDropdown {
+        DDropdown {
             width: parent.width - root.settingLabelWidth - Theme.spacingM
             options: [
                 MpvPaperI18n.tr("English", "mpvpaper"),
@@ -123,7 +124,7 @@ PluginSettings {
             anchors.verticalCenter: parent.verticalCenter
         }
 
-        DankToggle {
+        DToggle {
             anchors.verticalCenter: parent.verticalCenter
             checked: root.sameOnAllMonitors
 
@@ -157,7 +158,7 @@ PluginSettings {
             Behavior on opacity { NumberAnimation { duration: Theme.shortDuration } }
         }
 
-        DankDropdown {
+        DDropdown {
             width: parent.width - root.settingLabelWidth - Theme.spacingM
             visible: !root.sameOnAllMonitors
             options: root.monitors
@@ -328,7 +329,8 @@ PluginSettings {
 
                         thumbnailPath = cacheDir + "/" + fileName
                         if (cached.toString() !== "") {
-                            thumbnailImage.source = cached
+                            const p = cached.toString()
+                            thumbnailImage.source = p.startsWith("file://") ? p : "file://" + p
                             return
                         }
 
@@ -354,12 +356,12 @@ PluginSettings {
                     }
                 }
 
-                DankIcon {
+                DIcon {
                     anchors.centerIn: parent
                     name: "movie"
                     size: 32
                     color: Theme.primary
-                    visible: thumbnailImage.status === Image.Null || thumbnailImage.status === Image.Error
+                    visible: thumbnailImage.status !== Image.Ready
                 }
 
                 StateLayer {
@@ -389,7 +391,7 @@ PluginSettings {
                     visible: removeMouseArea.containsMouse
                     z: 100
 
-                    DankIcon {
+                    DIcon {
                         anchors.centerIn: parent
                         name: "close"
                         size: 16
@@ -411,23 +413,33 @@ PluginSettings {
 
     Row {
         width: parent.width
-        spacing: Theme.spacingM
+        spacing: Theme.spacingS
 
-        DankButton {
+        DButton {
             text: MpvPaperI18n.tr("Add Video", "mpvpaper")
-            width: (parent.width - Theme.spacingM * 2) / 3
+            iconName: "add"
+            width: (parent.width - Theme.spacingS * 3) / 4
             onClicked: openSystemFilePicker()
         }
 
-        DankButton {
+        DButton {
             text: MpvPaperI18n.tr("Add Folder", "mpvpaper")
-            width: (parent.width - Theme.spacingM * 2) / 3
+            iconName: "folder_open"
+            width: (parent.width - Theme.spacingS * 3) / 4
             onClicked: openSystemDirectoryPicker()
         }
 
-        DankButton {
+        DButton {
+            text: MpvPaperI18n.tr("Rescan Wallpapers", "mpvpaper")
+            iconName: "refresh"
+            width: (parent.width - Theme.spacingS * 3) / 4
+            onClicked: rescanAllFolders()
+        }
+
+        DButton {
             text: MpvPaperI18n.tr("Clear List", "mpvpaper")
-            width: (parent.width - Theme.spacingM * 2) / 3
+            iconName: "delete"
+            width: (parent.width - Theme.spacingS * 3) / 4
             enabled: getPlaylist().length > 0
             onClicked: clearPlaylist()
         }
@@ -457,7 +469,7 @@ PluginSettings {
             anchors.verticalCenter: parent.verticalCenter
         }
 
-        DankDropdown {
+        DDropdown {
             id: hwdecDropdown
             width: parent.width - root.settingLabelWidth - Theme.spacingM
             options: ["auto", "no", "vaapi", "vdpau", "nvdec"]
@@ -485,7 +497,7 @@ PluginSettings {
             anchors.verticalCenter: parent.verticalCenter
         }
 
-        DankDropdown {
+        DDropdown {
             id: panscanDropdown
             width: parent.width - root.settingLabelWidth - Theme.spacingM
             options: [
@@ -584,7 +596,7 @@ PluginSettings {
             anchors.verticalCenter: parent.verticalCenter
         }
 
-        DankDropdown {
+        DDropdown {
             id: lockBehaviorDropdown
             width: parent.width - root.settingLabelWidth - Theme.spacingM
             options: [
@@ -621,7 +633,7 @@ PluginSettings {
             anchors.verticalCenter: parent.verticalCenter
         }
 
-        DankToggle {
+        DToggle {
             id: pauseOnFullscreenToggle
             anchors.verticalCenter: parent.verticalCenter
 
@@ -654,7 +666,7 @@ PluginSettings {
                 anchors.verticalCenter: parent.verticalCenter
             }
 
-            DankDropdown {
+            DDropdown {
                 id: restartIntervalDropdown
                 width: parent.width - root.settingLabelWidth - Theme.spacingM
                 options: [
@@ -742,7 +754,7 @@ PluginSettings {
                 }
             }
 
-            DankToggle {
+            DToggle {
                 id: slideshowEnabledToggle
                 anchors.verticalCenter: parent.verticalCenter
 
@@ -774,7 +786,7 @@ PluginSettings {
             Behavior on opacity { NumberAnimation { duration: Theme.shortDuration } }
         }
 
-        DankDropdown {
+        DDropdown {
             id: slideshowIntervalDropdown
             width: parent.width - root.settingLabelWidth - Theme.spacingM
             enabled: root.loadValue("slideshowEnabled", false)
@@ -833,7 +845,7 @@ PluginSettings {
             Behavior on opacity { NumberAnimation { duration: Theme.shortDuration } }
         }
 
-        DankToggle {
+        DToggle {
             id: slideshowShuffleToggle
             anchors.verticalCenter: parent.verticalCenter
             enabled: root.loadValue("slideshowEnabled", false)
@@ -892,7 +904,7 @@ PluginSettings {
                 }
             }
 
-            DankToggle {
+            DToggle {
                 id: pauseOnBatteryToggle
                 anchors.verticalCenter: parent.verticalCenter
 
@@ -905,6 +917,65 @@ PluginSettings {
                 onToggled: isChecked => {
                     if (isChecked !== root.loadValue("pauseOnBattery", false))
                         root.saveValue("pauseOnBattery", isChecked)
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        width: parent.width
+        height: 1
+        color: Theme.outlineStrong
+    }
+
+    StyledText {
+        text: MpvPaperI18n.tr("Folders & Scanning", "mpvpaper")
+        font.pixelSize: Theme.fontSizeMedium
+        font.weight: Font.Medium
+    }
+
+    Column {
+        width: parent.width
+        spacing: Theme.spacingXS
+
+        Row {
+            width: parent.width
+            spacing: Theme.spacingM
+
+            Column {
+                width: parent.width - autoDetectFoldersToggle.width - Theme.spacingM
+                spacing: Theme.spacingXS
+                anchors.verticalCenter: parent.verticalCenter
+
+                StyledText {
+                    text: MpvPaperI18n.tr("Auto-detect new wallpapers", "mpvpaper")
+                    font.pixelSize: root.settingTitleSize
+                    font.weight: Font.Medium
+                    color: Theme.surfaceText
+                }
+
+                StyledText {
+                    text: MpvPaperI18n.tr("Automatically scan wallpaper folders for new videos", "mpvpaper")
+                    font.pixelSize: root.settingDescriptionSize
+                    color: Theme.surfaceVariantText
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                }
+            }
+
+            DToggle {
+                id: autoDetectFoldersToggle
+                anchors.verticalCenter: parent.verticalCenter
+
+                Binding {
+                    target: autoDetectFoldersToggle
+                    property: "checked"
+                    value: root.loadValue("autoDetectFolders", true)
+                }
+
+                onToggled: isChecked => {
+                    if (isChecked !== root.loadValue("autoDetectFolders", true))
+                        root.saveValue("autoDetectFolders", isChecked)
                 }
             }
         }
@@ -951,7 +1022,7 @@ PluginSettings {
                 }
             }
 
-            DankToggle {
+            DToggle {
                 id: disableUserScriptsToggle
                 anchors.verticalCenter: parent.verticalCenter
                 onToggled: isChecked => {
@@ -981,7 +1052,7 @@ PluginSettings {
             wrapMode: Text.WordWrap
         }
 
-        DankTextField {
+        DTextField {
             id: customMpvOptionsField
             width: parent.width
             placeholderText: "profile=..."
@@ -1073,10 +1144,45 @@ PluginSettings {
     }
 
     function scanAndAddFolder(dirPath) {
+        const folders = loadValue("wallpaperFolders", []).slice()
+        if (folders.indexOf(dirPath) === -1) {
+            folders.push(dirPath)
+            saveValue("wallpaperFolders", folders)
+        }
         folderScanProcess.scanOutput = ""
         folderScanProcess.command = [
             "find", dirPath, "-type", "f", "-regextype", "posix-extended",
             "-iregex", ".*\\.(mp4|mkv|webm|avi|mov|flv|wmv|m4v)"
+        ]
+        folderScanProcess.running = true
+    }
+
+    function rescanAllFolders() {
+        let folders = loadValue("wallpaperFolders", [])
+        if (!folders || folders.length === 0) {
+            const library = getPlaylist()
+            const inferred = []
+            for (const v of library) {
+                const dir = v.substring(0, v.lastIndexOf("/"))
+                if (dir && inferred.indexOf(dir) === -1) inferred.push(dir)
+            }
+            if (inferred.length > 0) {
+                folders = inferred
+                saveValue("wallpaperFolders", inferred)
+            }
+        }
+        if (!folders || folders.length === 0) {
+            ToastService.showWarning(
+                MpvPaperI18n.tr("No Videos Found", "mpvpaper"),
+                MpvPaperI18n.tr("No supported video files found in selected folder", "mpvpaper")
+            )
+            return
+        }
+        folderScanProcess.scanOutput = ""
+        const folderArgs = folders.map(f => `"${f}"`).join(" ")
+        folderScanProcess.command = [
+            "bash", "-c",
+            `for d in ${folderArgs}; do [ -d "$d" ] && find "$d" -maxdepth 2 -type f -regextype posix-extended -iregex '.*\\.(mp4|mkv|webm|avi|mov|flv|wmv|m4v)'; done`
         ]
         folderScanProcess.running = true
     }
