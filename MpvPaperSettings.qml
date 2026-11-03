@@ -2,6 +2,7 @@ import QtCore
 import QtQuick
 import QtQuick.Effects
 import Quickshell
+import Quickshell.Widgets
 import Quickshell.Io
 import qs.Common
 import qs.Widgets
@@ -253,106 +254,93 @@ PluginSettings {
             property bool isSelected: videoGridView.currentIndex === index
 
             Rectangle {
+                id: cardFrame
                 anchors.fill: parent
                 anchors.margins: Theme.spacingXS
                 radius: Theme.cornerRadius
                 color: Theme.withAlpha(Theme.surfaceContainerHighest, Theme.popupTransparency)
-                clip: true
+                border.width: isSelected ? 3 : 0
+                border.color: Theme.primary
 
-                Rectangle {
-                    id: maskRect
-                    width: thumbnailImage.width
-                    height: thumbnailImage.height
-                    radius: Theme.cornerRadius
-                    visible: false
-                    layer.enabled: true
-                }
-
-                Rectangle {
+                ClippingRectangle {
                     anchors.fill: parent
-                    color: isSelected ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15) : "transparent"
-                    radius: parent.radius
-                    Behavior on color {
-                        ColorAnimation {
-                            duration: Theme.shortDuration
-                            easing.type: Theme.standardEasing
-                        }
-                    }
-                }
-
-                Rectangle {
-                    anchors.fill: parent
+                    anchors.margins: isSelected ? 2 : 0
+                    radius: Math.max(0, cardFrame.radius - (isSelected ? 2 : 0))
                     color: "transparent"
-                    border.width: isSelected ? 3 : 0
-                    border.color: Theme.primary
-                    radius: parent.radius
-                    Behavior on border.width {
-                        NumberAnimation {
-                            duration: Theme.shortDuration
-                            easing.type: Theme.standardEasing
+
+                    Rectangle {
+                        anchors.fill: parent
+                        color: isSelected ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15) : "transparent"
+                        radius: parent.radius
+                        Behavior on color {
+                            ColorAnimation {
+                                duration: Theme.shortDuration
+                                easing.type: Theme.standardEasing
+                            }
                         }
                     }
-                }
 
-                Image {
-                    id: thumbnailImage
-                    anchors.fill: parent
-                    fillMode: Image.PreserveAspectCrop
-                    asynchronous: true
-                    cache: true
-                    layer.enabled: true
-                    layer.effect: MultiEffect {
-                        maskEnabled: true
-                        maskThresholdMin: 0.5
-                        maskSpreadAtMin: 1.0
-                        maskSource: maskRect
-                    }
+                    Image {
+                        id: thumbnailImage
+                        anchors.fill: parent
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        cache: true
 
-                    property string videoPath: modelData
-                    property string thumbnailPath: ""
-
-                    Component.onCompleted: generateThumbnail()
-
-                    function generateThumbnail() {
-                        const cacheHome = StandardPaths.writableLocation(StandardPaths.GenericCacheLocation).toString().replace("file://", "")
-                        const cacheDir = cacheHome + "/DankMaterialShell/mpvpaper_thumbnails"
-                        const hash = videoPath.split('').reduce((a, b) => {
-                            a = ((a << 5) - a) + b.charCodeAt(0)
-                            return a & a
-                        }, 0)
-                        const fileName = Math.abs(hash) + "_thumb.jpg"
-                        const cached = StandardPaths.locate(
-                            StandardPaths.GenericCacheLocation,
-                            "DankMaterialShell/mpvpaper_thumbnails/" + fileName,
-                            StandardPaths.LocateFile
-                        )
-
-                        thumbnailPath = cacheDir + "/" + fileName
-                        if (cached.toString() !== "") {
-                            const p = cached.toString()
-                            thumbnailImage.source = p.startsWith("file://") ? p : "file://" + p
-                            return
-                        }
-
-                        playlistThumbGenProcess.thumbnailPath = thumbnailPath
-                        playlistThumbGenProcess.videoPath = videoPath
-                        playlistThumbGenProcess.command = [
-                            "bash", "-c",
-                            'mkdir -p -- "$1" && ffmpeg -loglevel error -i "$2" -ss 00:00:01 -vframes 1 -vf "scale=320:180:force_original_aspect_ratio=increase,crop=320:180" -q:v 3 "$3" -y',
-                            "mpvpaper-thumbnail", cacheDir, videoPath, thumbnailPath
-                        ]
-                        playlistThumbGenProcess.running = true
-                    }
-
-                    Process {
-                        id: playlistThumbGenProcess
+                        property string videoPath: modelData
                         property string thumbnailPath: ""
-                        property string videoPath: ""
 
-                        onExited: code => {
-                            if (code === 0) thumbnailImage.source = "file://" + thumbnailPath
-                            else console.warn("MpvPaper Settings: Failed to generate thumbnail for", videoPath, "exit code:", code)
+                        Component.onCompleted: generateThumbnail()
+
+                        function generateThumbnail() {
+                            const cacheHome = StandardPaths.writableLocation(StandardPaths.GenericCacheLocation).toString().replace("file://", "")
+                            const cacheDir = cacheHome + "/DankMaterialShell/mpvpaper_thumbnails"
+                            const hash = videoPath.split('').reduce((a, b) => {
+                                a = ((a << 5) - a) + b.charCodeAt(0)
+                                return a & a
+                            }, 0)
+                            const fileName = Math.abs(hash) + "_thumb.jpg"
+                            const cached = StandardPaths.locate(
+                                StandardPaths.GenericCacheLocation,
+                                "DankMaterialShell/mpvpaper_thumbnails/" + fileName,
+                                StandardPaths.LocateFile
+                            )
+
+                            thumbnailPath = cacheDir + "/" + fileName
+                            if (cached.toString() !== "") {
+                                const p = cached.toString()
+                                thumbnailImage.source = p.startsWith("file://") ? p : "file://" + p
+                                return
+                            }
+
+                            playlistThumbGenProcess.thumbnailPath = thumbnailPath
+                            playlistThumbGenProcess.videoPath = videoPath
+                            playlistThumbGenProcess.command = [
+                                "bash", "-c",
+                                'mkdir -p -- "$1" && ffmpeg -loglevel error -i "$2" -ss 00:00:01 -vframes 1 -vf "scale=320:180:force_original_aspect_ratio=increase,crop=320:180" -q:v 3 "$3" -y',
+                                "mpvpaper-thumbnail", cacheDir, videoPath, thumbnailPath
+                            ]
+                            playlistThumbGenProcess.running = true
                         }
+
+                        Process {
+                            id: playlistThumbGenProcess
+                            property string thumbnailPath: ""
+                            property string videoPath: ""
+
+                            onExited: code => {
+                                if (code === 0) thumbnailImage.source = "file://" + thumbnailPath
+                                else console.warn("MpvPaper Settings: Failed to generate thumbnail for", videoPath, "exit code:", code)
+                            }
+                        }
+                    }
+
+                    DIcon {
+                        anchors.centerIn: parent
+                        name: "movie"
+                        size: 32
+                        color: Theme.primary
+                        visible: thumbnailImage.status !== Image.Ready
                     }
                 }
 

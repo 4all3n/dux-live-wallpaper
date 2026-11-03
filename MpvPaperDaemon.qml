@@ -396,7 +396,19 @@ PluginComponent {
 
     function getEffectiveVideo(monitor) {
         if (sameOnAllMonitors && allMonitorsVideo) return allMonitorsVideo
-        return monitorVideos[monitor] || ""
+        if (monitorVideos && monitorVideos[monitor]) return monitorVideos[monitor]
+        if (allMonitorsVideo) return allMonitorsVideo
+        if (pluginData && pluginData.lastActiveVideo) return pluginData.lastActiveVideo
+        // Fallback: check if any other monitor has a video configured
+        if (monitorVideos && typeof monitorVideos === "object") {
+            for (const m in monitorVideos) {
+                if (monitorVideos[m]) return monitorVideos[m]
+            }
+        }
+        // Fallback: first video in library
+        const library = (pluginData && Array.isArray(pluginData.videoLibrary)) ? pluginData.videoLibrary : []
+        if (library.length > 0 && library[0]) return library[0]
+        return ""
     }
 
     function getVideoSettings(videoPath) {

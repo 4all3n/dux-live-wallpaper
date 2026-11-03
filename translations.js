@@ -97,7 +97,8 @@ const translations = {
             "Folders & Scanning": "文件夹与扫描",
             "Open Settings": "打开设置",
             "Remove": "移除",
-            "Remove from library": "从视频库中移除"
+            "Remove from library": "从视频库中移除",
+            "Press Enter or Click to Apply": "按回车或点击应用"
         }
     }
 }

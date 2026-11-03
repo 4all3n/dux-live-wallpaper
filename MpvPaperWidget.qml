@@ -3,6 +3,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Effects
 import Quickshell
+import Quickshell.Widgets
 import Quickshell.Io
 import qs.Common
 import qs.Widgets
@@ -82,12 +83,20 @@ PluginComponent {
     function getCurrentVideoPath() {
         if (!pluginService) return ""
         const monitorVideos = pluginService.loadPluginData("mpvpaper", "monitorVideos", {})
+        const allVideo = pluginService.loadPluginData("mpvpaper", "allMonitorsVideo", "")
+        const lastVideo = pluginService.loadPluginData("mpvpaper", "lastActiveVideo", "")
 
-        if (sameOnAllMonitors) {
-            return pluginService.loadPluginData("mpvpaper", "allMonitorsVideo", "")
+        if (sameOnAllMonitors && allVideo) return allVideo
+        if (selectedMonitor && monitorVideos[selectedMonitor]) return monitorVideos[selectedMonitor]
+        if (allVideo) return allVideo
+        if (lastVideo) return lastVideo
+        if (monitorVideos && typeof monitorVideos === "object") {
+            for (const m in monitorVideos) {
+                if (monitorVideos[m]) return monitorVideos[m]
+            }
         }
-
-        return monitorVideos[selectedMonitor] || ""
+        const library = getPlaylist()
+        return library.length > 0 ? library[0] : ""
     }
 
     function setCurrentVideo(videoPath) {
@@ -96,6 +105,8 @@ PluginComponent {
         if (!root.isLiveActive) {
             pluginService.savePluginData("mpvpaper", "liveWallpaperActive", true)
         }
+
+        pluginService.savePluginData("mpvpaper", "lastActiveVideo", videoPath)
 
         if (sameOnAllMonitors) {
             pluginService.savePluginData("mpvpaper", "allMonitorsVideo", videoPath)
@@ -508,6 +519,50 @@ PluginComponent {
 
         implicitHeight: itemHeight + 110
 
+        function stepLeft() {
+            if (carouselList.currentIndex > 0) {
+                carouselList.currentIndex--
+            }
+        }
+
+        function stepRight() {
+            if (carouselList.currentIndex < galleryRoot.playlist.length - 1) {
+                carouselList.currentIndex++
+            }
+        }
+
+        function selectCurrent() {
+            if (galleryRoot.playlist.length > 0 && carouselList.currentIndex >= 0 && carouselList.currentIndex < galleryRoot.playlist.length) {
+                root.setCurrentVideo(galleryRoot.playlist[carouselList.currentIndex])
+            }
+        }
+
+        focus: true
+        activeFocusOnTab: true
+
+        Keys.onLeftPressed: event => {
+            stepLeft()
+            event.accepted = true
+        }
+        Keys.onRightPressed: event => {
+            stepRight()
+            event.accepted = true
+        }
+        Keys.onReturnPressed: event => {
+            selectCurrent()
+            event.accepted = true
+        }
+        Keys.onEnterPressed: event => {
+            selectCurrent()
+            event.accepted = true
+        }
+        Keys.onSpacePressed: event => {
+            selectCurrent()
+            event.accepted = true
+        }
+
+        Component.onCompleted: Qt.callLater(() => carouselList.forceActiveFocus())
+
         Column {
             anchors.fill: parent
             spacing: Theme.spacingS
@@ -530,6 +585,29 @@ PluginComponent {
                     highlightMoveDuration: 250
                     snapMode: ListView.SnapToItem
                     clip: false
+                    focus: true
+                    activeFocusOnTab: true
+
+                    Keys.onLeftPressed: event => {
+                        galleryRoot.stepLeft()
+                        event.accepted = true
+                    }
+                    Keys.onRightPressed: event => {
+                        galleryRoot.stepRight()
+                        event.accepted = true
+                    }
+                    Keys.onReturnPressed: event => {
+                        galleryRoot.selectCurrent()
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: event => {
+                        galleryRoot.selectCurrent()
+                        event.accepted = true
+                    }
+                    Keys.onSpacePressed: event => {
+                        galleryRoot.selectCurrent()
+                        event.accepted = true
+                    }
 
                     delegate: Item {
                         id: cardSlide
@@ -572,35 +650,48 @@ PluginComponent {
                             color: Theme.withAlpha(Theme.surfaceContainerHighest, Theme.popupTransparency)
                             border.width: isSelected ? 3 : 1
                             border.color: isSelected ? Theme.primary : Theme.outlineHeavy
-                            clip: true
 
-                            Image {
-                                id: cardImg
+                            ClippingRectangle {
                                 anchors.fill: parent
-                                anchors.margins: 1
-                                fillMode: Image.PreserveAspectCrop
-                                asynchronous: true
-                                cache: true
-                                source: {
-                                    const loc = StandardPaths.locate(
-                                        StandardPaths.GenericCacheLocation,
-                                        "DankMaterialShell/mpvpaper_thumbnails/" + cardSlide.hashStr + "_thumb.jpg",
-                                        StandardPaths.LocateFile
-                                    )
-                                    if (loc.toString() !== "") {
-                                        const s = loc.toString()
-                                        return s.startsWith("file://") ? s : "file://" + s
+                                anchors.margins: isSelected ? 2 : 1
+                                radius: Math.max(0, cardFrame.radius - (isSelected ? 2 : 1))
+                                color: "transparent"
+
+                                Image {
+                                    id: cardImg
+                                    anchors.fill: parent
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                    cache: true
+                                    source: {
+                                        const loc = StandardPaths.locate(
+                                            StandardPaths.GenericCacheLocation,
+                                            "DankMaterialShell/mpvpaper_thumbnails/" + cardSlide.hashStr + "_thumb.jpg",
+                                            StandardPaths.LocateFile
+                                        )
+                                        if (loc.toString() !== "") {
+                                            const s = loc.toString()
+                                            return s.startsWith("file://") ? s : "file://" + s
+                                        }
+                                        return ""
                                     }
-                                    return ""
+
+                                    Component.onCompleted: {
+                                        if (source.toString() === "") cardThumbProcess.running = true
+                                    }
+
+                                    onStatusChanged: {
+                                        if (status === Image.Error || (status === Image.Null && source.toString() === ""))
+                                            cardThumbProcess.running = true
+                                    }
                                 }
 
-                                Component.onCompleted: {
-                                    if (source.toString() === "") cardThumbProcess.running = true
-                                }
-
-                                onStatusChanged: {
-                                    if (status === Image.Error || (status === Image.Null && source.toString() === ""))
-                                        cardThumbProcess.running = true
+                                DIcon {
+                                    anchors.centerIn: parent
+                                    name: "movie"
+                                    size: 36
+                                    color: Theme.primary
+                                    visible: cardImg.status !== Image.Ready
                                 }
                             }
 
@@ -614,14 +705,6 @@ PluginComponent {
                                 onExited: code => {
                                     if (code === 0) cardImg.source = "file://" + cardSlide.expectedThumbPath
                                 }
-                            }
-
-                            DIcon {
-                                anchors.centerIn: parent
-                                name: "movie"
-                                size: 36
-                                color: Theme.primary
-                                visible: cardImg.status !== Image.Ready
                             }
 
                             // Active checkmark badge
@@ -678,6 +761,7 @@ PluginComponent {
                                 onClicked: {
                                     carouselList.currentIndex = cardSlide.index
                                     root.setCurrentVideo(cardSlide.modelData)
+                                    carouselList.forceActiveFocus()
                                 }
                             }
                         }
@@ -691,13 +775,14 @@ PluginComponent {
                             if (delta === 0) return
                             const next = Math.max(0, Math.min(galleryRoot.playlist.length - 1, carouselList.currentIndex - Math.sign(delta)))
                             carouselList.currentIndex = next
+                            carouselList.forceActiveFocus()
                             wheel.accepted = true
                         }
                     }
                 }
             }
 
-            // ── Navigation Pager & Quick Controls Strip ──
+            // ── Navigation Pager & Library Actions Strip ──
             Item {
                 width: parent.width
                 height: 36
@@ -712,7 +797,10 @@ PluginComponent {
                         buttonSize: 32
                         enabled: carouselList.currentIndex > 0
                         opacity: enabled ? 0.9 : 0.25
-                        onClicked: carouselList.currentIndex = Math.max(0, carouselList.currentIndex - 1)
+                        onClicked: {
+                            galleryRoot.stepLeft()
+                            carouselList.forceActiveFocus()
+                        }
                     }
 
                     StyledText {
@@ -731,7 +819,10 @@ PluginComponent {
                         buttonSize: 32
                         enabled: carouselList.currentIndex < galleryRoot.playlist.length - 1
                         opacity: enabled ? 0.9 : 0.25
-                        onClicked: carouselList.currentIndex = Math.min(galleryRoot.playlist.length - 1, carouselList.currentIndex + 1)
+                        onClicked: {
+                            galleryRoot.stepRight()
+                            carouselList.forceActiveFocus()
+                        }
                     }
 
                     Rectangle {
@@ -740,34 +831,6 @@ PluginComponent {
                         color: Theme.outlineHeavy
                         Layout.leftMargin: Theme.spacingXS
                         Layout.rightMargin: Theme.spacingXS
-                    }
-
-                    // Pause / Resume playback
-                    DActionButton {
-                        iconName: root.isPaused ? "play_arrow" : "pause"
-                        iconSize: 18
-                        buttonSize: 32
-                        tooltipText: root.isPaused ? MpvPaperI18n.tr("Resume Playback", "mpvpaper") : MpvPaperI18n.tr("Pause Playback", "mpvpaper")
-                        onClicked: root.togglePausePlayback()
-                    }
-
-                    // Enable / Disable (Remove) live wallpaper
-                    DActionButton {
-                        iconName: root.isLiveActive ? "power_settings_new" : "movie"
-                        iconColor: root.isLiveActive ? Theme.primary : Theme.surfaceVariantText
-                        iconSize: 18
-                        buttonSize: 32
-                        tooltipText: root.isLiveActive ? MpvPaperI18n.tr("Disable Live Wallpaper", "mpvpaper") : MpvPaperI18n.tr("Enable Live Wallpaper", "mpvpaper")
-                        onClicked: root.toggleLiveWallpaperActive()
-                    }
-
-                    // Rescan Wallpapers
-                    DActionButton {
-                        iconName: "refresh"
-                        iconSize: 18
-                        buttonSize: 32
-                        tooltipText: MpvPaperI18n.tr("Rescan Wallpapers", "mpvpaper")
-                        onClicked: root.rescanMonitoredFolders(true)
                     }
 
                     // Add Video
@@ -786,6 +849,15 @@ PluginComponent {
                         buttonSize: 32
                         tooltipText: MpvPaperI18n.tr("Add Folder", "mpvpaper")
                         onClicked: root.openSystemDirectoryPicker()
+                    }
+
+                    // Rescan Wallpapers
+                    DActionButton {
+                        iconName: "refresh"
+                        iconSize: 18
+                        buttonSize: 32
+                        tooltipText: MpvPaperI18n.tr("Rescan Wallpapers", "mpvpaper")
+                        onClicked: root.rescanMonitoredFolders(true)
                     }
                 }
             }
@@ -824,13 +896,37 @@ PluginComponent {
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignHCenter
                         text: {
+                            const cur = (galleryRoot.playlist.length > 0 && carouselList.currentIndex >= 0 && carouselList.currentIndex < galleryRoot.playlist.length)
+                                ? galleryRoot.playlist[carouselList.currentIndex]
+                                : root.getCurrentVideoPath()
+                            const isCurSelected = root.getCurrentVideoPath() === cur
+
                             if (!root.isLiveActive) return "• " + MpvPaperI18n.tr("Live wallpaper disabled", "mpvpaper") + " •"
-                            if (root.isPaused) return "• " + MpvPaperI18n.tr("Paused", "mpvpaper") + " •"
-                            if (pluginData && pluginData.slideshowEnabled) return "• " + MpvPaperI18n.tr("Playing", "mpvpaper") + " (Auto-cycle) •"
-                            return "• " + MpvPaperI18n.tr("Playing", "mpvpaper") + " •"
+                            if (isCurSelected && root.isPaused) return "• " + MpvPaperI18n.tr("Paused", "mpvpaper") + " •"
+                            if (isCurSelected && pluginData && pluginData.slideshowEnabled) return "• " + MpvPaperI18n.tr("Playing", "mpvpaper") + " (Auto-cycle) •"
+                            if (isCurSelected) return "• " + MpvPaperI18n.tr("Playing", "mpvpaper") + " •"
+                            return "• " + MpvPaperI18n.tr("Press Enter or Click to Apply", "mpvpaper") + " •"
                         }
                         font.pixelSize: Theme.fontSizeSmall * 0.85
-                        color: !root.isLiveActive ? Theme.error : (root.isPaused ? Theme.surfaceVariantText : Theme.primary)
+                        color: {
+                            const cur = (galleryRoot.playlist.length > 0 && carouselList.currentIndex >= 0 && carouselList.currentIndex < galleryRoot.playlist.length)
+                                ? galleryRoot.playlist[carouselList.currentIndex]
+                                : root.getCurrentVideoPath()
+                            const isCurSelected = root.getCurrentVideoPath() === cur
+                            if (!root.isLiveActive) return Theme.error
+                            if (isCurSelected && root.isPaused) return Theme.surfaceVariantText
+                            if (isCurSelected) return Theme.primary
+                            return Theme.tertiary || Theme.primary
+                        }
+                    }
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        galleryRoot.selectCurrent()
+                        carouselList.forceActiveFocus()
                     }
                 }
             }
@@ -984,22 +1080,6 @@ PluginComponent {
                             tooltipText: root.isLiveActive ? MpvPaperI18n.tr("Disable Live Wallpaper", "mpvpaper") : MpvPaperI18n.tr("Enable Live Wallpaper", "mpvpaper")
                             onClicked: root.toggleLiveWallpaperActive()
                         }
-
-                        DActionButton {
-                            iconName: "skip_next"
-                            iconSize: 18
-                            buttonSize: 32
-                            tooltipText: MpvPaperI18n.tr("Next wallpaper", "mpvpaper")
-                            onClicked: root.cycleNextVideo()
-                        }
-
-                        DActionButton {
-                            iconName: "refresh"
-                            iconSize: 18
-                            buttonSize: 32
-                            tooltipText: MpvPaperI18n.tr("Rescan Wallpapers", "mpvpaper")
-                            onClicked: root.rescanMonitoredFolders(true)
-                        }
                     }
 
                     // ── Coverflow Carousel ──
@@ -1108,27 +1188,6 @@ PluginComponent {
 
                     // ── Power & Battery Playback ──
                     CcGroup {
-                        CcToggleRow {
-                            iconName: "movie"
-                            text: MpvPaperI18n.tr("Enable Live Wallpaper", "mpvpaper")
-                            description: MpvPaperI18n.tr("Toggle live video wallpaper on desktop", "mpvpaper")
-                            checked: root.isLiveActive
-                            onToggled: isChecked => {
-                                if (isChecked !== root.isLiveActive) root.toggleLiveWallpaperActive()
-                            }
-                        }
-
-                        CcToggleRow {
-                            visible: root.isLiveActive
-                            iconName: "pause"
-                            text: MpvPaperI18n.tr("Pause Playback", "mpvpaper")
-                            description: MpvPaperI18n.tr("Freeze video wallpaper on current frame", "mpvpaper")
-                            checked: root.isPaused
-                            onToggled: isChecked => {
-                                if (isChecked !== root.isPaused) root.togglePausePlayback()
-                            }
-                        }
-
                         CcToggleRow {
                             iconName: "battery_saver"
                             text: MpvPaperI18n.tr("Pause on battery power", "mpvpaper")
