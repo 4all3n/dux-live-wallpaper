@@ -59,6 +59,7 @@ const translations = {
             "%1 wallpapers": "%1 个壁纸",
             "MpvPaper Error": "播放器异常",
             "Video playback failed on %1": "显示器 %1 上的视频播放失败",
+            "No video selected": "未选择视频",
             // ── Slideshow ──
             "Slideshow": "幻灯片",
             "Auto-cycle wallpapers": "自动轮换壁纸",

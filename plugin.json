@@ -6,7 +6,7 @@
     "author": "4all3n",
     "original_author": "tokisak1kurum1",
     "type": "composite",
-    "capabilities": ["wallpaper", "daemon", "dankbar-widget"],
+    "capabilities": ["wallpaper", "daemon", "dankbar-widget", "control-center-widget"],
     "components": {
         "daemon": "./MpvPaperDaemon.qml",
         "widget": "./MpvPaperWidget.qml"

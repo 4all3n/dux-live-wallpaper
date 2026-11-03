@@ -39,6 +39,25 @@ PluginComponent {
     property var fileBrowserParentPopout: null
     property bool sameOnAllMonitors: pluginData.sameOnAllMonitors || false
 
+    // ── Control Center Integration ──
+    ccWidgetIcon: "movie"
+    ccWidgetPrimaryText: MpvPaperI18n.tr("Live Wallpaper", "mpvpaper")
+    ccWidgetSecondaryText: {
+        root.refreshTrigger
+        const current = root.getCurrentVideoPath()
+        if (!current) return MpvPaperI18n.tr("No video selected", "mpvpaper")
+        const filename = current.split("/").pop()
+        if (pluginData && pluginData.slideshowEnabled) {
+            return filename + " (Auto)"
+        }
+        return filename
+    }
+    ccWidgetIsActive: root.getCurrentVideoPath() !== ""
+    ccWidgetIsToggle: true
+    ccDetailHeight: 260
+
+    onCcWidgetToggled: root.cycleNextVideo()
+
     Connections {
         target: pluginService
         function onPluginDataChanged(changedPluginId) {
@@ -114,6 +133,25 @@ PluginComponent {
         currentPage = Math.floor(videoIndex / itemsPerPage)
         gridIndex = videoIndex % itemsPerPage
         root.refreshTrigger++
+    }
+
+    function cycleNextVideo() {
+        const playlist = root.getPlaylist()
+        if (playlist.length < 2) return
+        const currentPath = root.getCurrentVideoPath()
+        let currentIndex = playlist.indexOf(currentPath)
+        if (currentIndex < 0) currentIndex = -1
+        const shuffleEnabled = (pluginData && pluginData.slideshowShuffle) || false
+        let nextVideo
+        if (shuffleEnabled) {
+            let idx = Math.floor(Math.random() * playlist.length)
+            if (playlist[idx] === currentPath && playlist.length > 1)
+                idx = (idx + 1) % playlist.length
+            nextVideo = playlist[idx]
+        } else {
+            nextVideo = playlist[(currentIndex + 1) % playlist.length]
+        }
+        if (nextVideo) root.setCurrentVideo(nextVideo)
     }
 
     function openSystemFilePicker() {
@@ -251,25 +289,7 @@ PluginComponent {
                                 buttonSize: 32
                                 opacity: 0.8
                                 visible: pluginData.slideshowEnabled || false
-                                onClicked: {
-                                    // Advance to next video in library
-                                    const playlist = root.getPlaylist()
-                                    if (playlist.length < 2) return
-                                    const currentPath = root.getCurrentVideoPath()
-                                    let currentIndex = playlist.indexOf(currentPath)
-                                    if (currentIndex < 0) currentIndex = -1
-                                    const shuffleEnabled = pluginData.slideshowShuffle || false
-                                    let nextVideo
-                                    if (shuffleEnabled) {
-                                        let idx = Math.floor(Math.random() * playlist.length)
-                                        if (playlist[idx] === currentPath && playlist.length > 1)
-                                            idx = (idx + 1) % playlist.length
-                                        nextVideo = playlist[idx]
-                                    } else {
-                                        nextVideo = playlist[(currentIndex + 1) % playlist.length]
-                                    }
-                                    if (nextVideo) root.setCurrentVideo(nextVideo)
-                                }
+                                onClicked: root.cycleNextVideo()
                             }
 
                             DankActionButton {
@@ -527,6 +547,187 @@ PluginComponent {
                     }
                 }
 
+            }
+        }
+    }
+
+    ccDetailContent: Component {
+        Item {
+            id: ccDetailRoot
+            implicitHeight: 260
+
+            Column {
+                anchors.fill: parent
+                anchors.margins: Theme.spacingM
+                spacing: Theme.spacingM
+
+                // Header with current video and actions
+                RowLayout {
+                    width: parent.width
+                    spacing: Theme.spacingS
+
+                    DankIcon {
+                        name: "movie"
+                        size: 20
+                        color: Theme.primary
+                    }
+
+                    StyledText {
+                        Layout.fillWidth: true
+                        text: {
+                            root.refreshTrigger
+                            const cur = root.getCurrentVideoPath()
+                            return cur ? cur.split("/").pop() : MpvPaperI18n.tr("No video selected", "mpvpaper")
+                        }
+                        font.pixelSize: Theme.fontSizeMedium
+                        font.weight: Font.Medium
+                        elide: Text.ElideRight
+                    }
+
+                    DankActionButton {
+                        iconName: "skip_next"
+                        iconSize: 18
+                        buttonSize: 30
+                        opacity: 0.85
+                        onClicked: root.cycleNextVideo()
+                    }
+
+                    DankActionButton {
+                        iconName: "folder_open"
+                        iconSize: 18
+                        buttonSize: 30
+                        opacity: 0.85
+                        onClicked: root.openSystemFilePicker()
+                    }
+                }
+
+                // Horizontal scroll list of wallpapers
+                ListView {
+                    id: ccVideoList
+                    width: parent.width
+                    height: 120
+                    orientation: ListView.Horizontal
+                    spacing: Theme.spacingS
+                    clip: true
+
+                    model: {
+                        root.refreshTrigger
+                        return root.getPlaylist()
+                    }
+
+                    delegate: Rectangle {
+                        width: 160
+                        height: 100
+                        anchors.verticalCenter: parent.verticalCenter
+                        radius: Theme.cornerRadius
+                        color: Theme.withAlpha(Theme.surfaceContainerHighest, Theme.popupTransparency)
+                        border.width: root.getCurrentVideoPath() === modelData ? 2 : 1
+                        border.color: root.getCurrentVideoPath() === modelData ? Theme.primary : Theme.outlineHeavy
+                        clip: true
+
+                        Image {
+                            anchors.fill: parent
+                            anchors.margins: 2
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            cache: true
+                            source: {
+                                const hash = modelData.split("").reduce((a, b) => ((a << 5) - a) + b.charCodeAt(0), 0)
+                                const fileName = Math.abs(hash) + "_thumb.jpg"
+                                const cached = StandardPaths.locate(
+                                    StandardPaths.GenericCacheLocation,
+                                    "DankMaterialShell/mpvpaper_thumbnails/" + fileName,
+                                    StandardPaths.LocateFile
+                                )
+                                return cached.toString() !== "" ? cached : ""
+                            }
+                        }
+
+                        DankIcon {
+                            anchors.centerIn: parent
+                            name: "movie"
+                            size: 24
+                            color: Theme.primary
+                            opacity: 0.6
+                        }
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            height: 26
+                            color: Qt.rgba(0, 0, 0, 0.6)
+
+                            StyledText {
+                                anchors.fill: parent
+                                anchors.margins: 4
+                                text: modelData.split("/").pop()
+                                font.pixelSize: Theme.fontSizeSmall * 0.85
+                                color: "white"
+                                elide: Text.ElideRight
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.setCurrentVideo(modelData)
+                        }
+                    }
+                }
+
+                // Bottom row: status & slideshow button
+                RowLayout {
+                    width: parent.width
+                    spacing: Theme.spacingM
+
+                    StyledText {
+                        Layout.fillWidth: true
+                        text: MpvPaperI18n.tr("%1 wallpapers", "mpvpaper").arg(root.getPlaylist().length)
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.surfaceText
+                        opacity: 0.7
+                    }
+
+                    Rectangle {
+                        implicitWidth: ccSlideshowRow.implicitWidth + Theme.spacingM
+                        implicitHeight: 28
+                        radius: Theme.cornerRadius
+                        color: (pluginData && pluginData.slideshowEnabled) ? Theme.withAlpha(Theme.primary, 0.15) : "transparent"
+                        border.width: 1
+                        border.color: (pluginData && pluginData.slideshowEnabled) ? Theme.primary : Theme.outlineHeavy
+
+                        Row {
+                            id: ccSlideshowRow
+                            anchors.centerIn: parent
+                            spacing: Theme.spacingXS
+                            DankIcon {
+                                name: "autorenew"
+                                size: 14
+                                color: (pluginData && pluginData.slideshowEnabled) ? Theme.primary : Theme.surfaceText
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                            StyledText {
+                                text: MpvPaperI18n.tr("Slideshow", "mpvpaper")
+                                font.pixelSize: Theme.fontSizeSmall * 0.9
+                                color: (pluginData && pluginData.slideshowEnabled) ? Theme.primary : Theme.surfaceText
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (!pluginService) return
+                                const current = !!pluginData.slideshowEnabled
+                                pluginService.savePluginData("mpvpaper", "slideshowEnabled", !current)
+                                root.refreshTrigger++
+                            }
+                        }
+                    }
+                }
             }
         }
     }
