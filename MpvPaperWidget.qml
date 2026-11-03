@@ -573,9 +573,55 @@ PluginComponent {
                 height: galleryRoot.itemHeight + 10
                 clip: true
 
+                // Empty State
+                Item {
+                    anchors.fill: parent
+                    visible: galleryRoot.playlist.length === 0
+
+                    ColumnLayout {
+                        anchors.centerIn: parent
+                        spacing: Theme.spacingM
+
+                        DIcon {
+                            Layout.alignment: Qt.AlignHCenter
+                            name: "video_library"
+                            size: 44
+                            color: Theme.surfaceVariantText
+                        }
+
+                        StyledText {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: MpvPaperI18n.tr("No video wallpapers found", "mpvpaper")
+                            font.pixelSize: Theme.fontSizeMedium
+                            font.weight: Font.Medium
+                            color: Theme.surfaceVariantText
+                        }
+
+                        RowLayout {
+                            Layout.alignment: Qt.AlignHCenter
+                            spacing: Theme.spacingS
+
+                            DButton {
+                                iconName: "add"
+                                text: MpvPaperI18n.tr("Add Video", "mpvpaper")
+                                buttonHeight: Theme.buttonHeightS
+                                onClicked: root.openSystemFilePicker()
+                            }
+
+                            DButton {
+                                iconName: "folder_open"
+                                text: MpvPaperI18n.tr("Add Folder", "mpvpaper")
+                                buttonHeight: Theme.buttonHeightS
+                                onClicked: root.openSystemDirectoryPicker()
+                            }
+                        }
+                    }
+                }
+
                 ListView {
                     id: carouselList
                     anchors.fill: parent
+                    visible: galleryRoot.playlist.length > 0
                     orientation: ListView.Horizontal
                     model: galleryRoot.playlist
                     spacing: -galleryRoot.itemWidth * 0.32

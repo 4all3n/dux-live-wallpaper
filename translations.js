@@ -98,7 +98,8 @@ const translations = {
             "Open Settings": "打开设置",
             "Remove": "移除",
             "Remove from library": "从视频库中移除",
-            "Press Enter or Click to Apply": "按回车或点击应用"
+            "Press Enter or Click to Apply": "按回车或点击应用",
+            "No video wallpapers found": "未找到视频壁纸"
         }
     }
 }
